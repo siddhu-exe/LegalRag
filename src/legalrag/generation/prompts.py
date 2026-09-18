@@ -2,6 +2,7 @@
 Prompt templates and context formatting utilities for legal question answering.
 """
 
+import re
 from typing import List, Dict, Any, Optional
 
 SYSTEM_PROMPT = """You are a specialized legal AI assistant analyzing Indian High Court judgments.
@@ -14,6 +15,8 @@ Strict Guidelines:
 3. Do NOT invent citations, section numbers, case names, or judicial holdings.
 4. If the retrieved passages do not contain sufficient evidence to answer the question, clearly state: "The provided judgment context does not contain sufficient information to answer this inquiry."
 """
+
+CITATION_PATTERN = re.compile(r"\[Chunk ID:\s*([^\]]+)\]", re.IGNORECASE)
 
 
 def format_context_block(
@@ -63,3 +66,28 @@ def build_rag_prompt(
 
 ### Instructions:
 Provide a precise, evidence-grounded answer based strictly on the context above, citing each supporting passage with [Chunk ID: ...]."""
+
+
+def extract_citations(text: str) -> List[str]:
+    """
+    Extracts and deduplicates all [Chunk ID: ...] citations mentioned in an answer text.
+
+    Args:
+        text: Generated legal answer text.
+
+    Returns:
+        Ordered list of unique chunk IDs cited in the text.
+    """
+    if not text:
+        return []
+
+    found = CITATION_PATTERN.findall(text)
+    seen = set()
+    unique_citations = []
+    for cid in found:
+        cleaned_cid = cid.strip()
+        if cleaned_cid and cleaned_cid not in seen:
+            seen.add(cleaned_cid)
+            unique_citations.append(cleaned_cid)
+
+    return unique_citations
