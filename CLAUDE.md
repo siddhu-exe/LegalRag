@@ -5,16 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 LegalRAG is a retrieval-augmented generation (RAG) system built over Indian High Court judgments sourced from the Hugging Face dataset `overthelex/indian-court-decisions` (`high_courts` config). The codebase operates across two environments:
-- **Local environment (this repo)**: Lightweight data collection, profiling, exploratory scripts, and notebook generator scripts.
-- **Remote GPU environment (Kaggle / Colab)**: Compute-heavy pipeline execution (corpus cleaning, locked baseline chunking, Gemini-powered gold eval benchmark generation, embedding generation with `bge-small-en-v1.5`, FAISS indexing, and Recall@K retrieval benchmarking).
+- **Local environment (this repo)**: Lightweight data collection, profiling, exploratory scripts, modular Python package (`src/legalrag`), and unit tests.
+- **Remote GPU environment (Kaggle / Colab)**: Compute-heavy pipeline execution (corpus cleaning, locked baseline chunking, Gemini-powered gold eval benchmark generation, embedding generation with `bge-base-en-v1.5`, FAISS indexing, and Recall@K retrieval benchmarking).
 
 ## Environment Setup
 
 - **Local Python Environment**: Virtual environment located at `rag/` (Python 3.12, managed with `uv`).
-- **Dependencies**: There is no `requirements.txt` or `pyproject.toml`.
-  - Local dependencies: `datasets`, `pandas`, `pyarrow`, `numpy`, `tqdm`, `huggingface_hub`, `httpx`.
+- **Dependencies**: Defined in `pyproject.toml`, `requirements.txt`, and `requirements-dev.txt`.
+  - Install dependencies: `source rag/bin/activate && uv pip install -r requirements.txt`
+  - Install editable package: `uv pip install -e .`
   - Adding local packages: `source rag/bin/activate && uv pip install <package>`
-  - Remote/Notebook-only dependencies: `torch`, `sentence-transformers`, `faiss-gpu`, `langchain-text-splitters`, `rank-bm25`, `google-genai`, `psutil`.
 - **Hugging Face Authentication**: Required for accessing the gated dataset (`hf auth login` or `huggingface_hub.login()`).
 
 ## Common Commands
@@ -24,44 +24,62 @@ LegalRAG is a retrieval-augmented generation (RAG) system built over Indian High
 source rag/bin/activate
 ```
 
-### Data Collection & Profiling
+### Run Unit Tests
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+# or with pytest
+pytest tests/
+```
+
+### Data Collection & Profiling Scripts
 ```bash
 # Collect 5,000 judgment subset (simple stream to data/raw/judgments.parquet)
-python download_subset.py
+python scripts/download_subset.py
 
 # Collect 20,000 balanced judgment corpus (with exact-text dedup and 300-1500 per-court bounds)
-python collect_corpus.py
+python scripts/collect_corpus.py
 
 # Profile dataset shape, missing values, duplicates, text length distributions, and year/court counts
-python profile_data.py
+python scripts/profile_data.py
 
 # Analyze CNR prefix court distribution
-python analyze_courts.py
+python scripts/analyze_courts.py
 ```
 
 ### Notebook Generation
 ```bash
 # Generates/updates Notebooks/legalrag_refactored.ipynb
-python write_notebook.py
+python scripts/write_notebook.py
 ```
 
-## Architecture & Pipeline
+## Architecture & Code Structure
 
 ```
 LegalRAG/
-├── download_subset.py    # First-pass 5k sample collector → data/raw/judgments.parquet
-├── collect_corpus.py     # Balanced 20k collector with exact dedup & per-court limits
-├── profile_data.py       # Dataset profiling script (reads data/raw/judgments.parquet)
-├── analyze_courts.py     # Analyzes CNR prefix (court code) distribution
-├── write_notebook.py     # Programmatic generator for Kaggle/Colab pipeline notebook
+├── pyproject.toml              # Build metadata, packaging & tool configs
+├── requirements.txt            # Pinned runtime dependencies
+├── requirements-dev.txt        # Development & testing tooling
+├── src/
+│   └── legalrag/               # Core modular library
+│       ├── preprocessing/      # Cleaner & locked LegalChunker
+│       ├── retrieval/          # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
+│       ├── generation/         # RAG prompt formatting & greedy generation client
+│       └── evaluation/         # Gold evidence matching & failure taxonomy metrics
+├── tests/                      # Comprehensive unit test suite
+├── scripts/
+│   ├── download_subset.py      # First-pass 5k sample collector → data/raw/judgments.parquet
+│   ├── collect_corpus.py       # Balanced 20k collector with exact dedup & per-court limits
+│   ├── profile_data.py         # Dataset profiling script
+│   ├── analyze_courts.py       # Analyzes CNR prefix (court code) distribution
+│   └── write_notebook.py       # Programmatic generator for Kaggle/Colab pipeline notebook
 ├── data/
-│   ├── raw/              # Raw collected Parquet files
-│   └── processed/        # Cleaned and chunked corpus artifacts
+│   ├── raw/                    # Raw collected Parquet files
+│   └── processed/              # Cleaned and chunked corpus artifacts
 ├── Notebooks/
-│   ├── legalrag.ipynb            # Original experimental pipeline notebook
+│   ├── legalrag.ipynb          # Original experimental pipeline notebook
 │   ├── legalrag_refactored.ipynb # Idempotent, checkpointed pipeline notebook
 │   └── legalrag-100k-final.ipynb # 100k scale experimental notebook
-└── rag/                  # Local Python virtual environment
+└── docs/                       # Research and technical documentation suite
 ```
 
 ### Pipeline Stages
@@ -70,8 +88,10 @@ LegalRAG/
 3. **Chunking (Locked Baseline)**: 1,200 character chunk size, 200 character overlap, minimum chunk length 100 characters.
 4. **Eval Benchmark Generation**: 100 sampled judgments evaluated with structured question generation (`gemini-3.5-flash-lite`), mapping `supporting_text` to gold chunk IDs.
 5. **Retrieval Baselines**:
-   - **BM25**: Tokenized corpus indexed via `rank-bm25`.
-   - **Dense**: `BAAI/bge-small-en-v1.5` embeddings (384-dim, normalized) indexed with FAISS (`IndexFlatIP`).
+   - **BM25**: Tokenized corpus indexed via `rank-bm25` ($k_1=1.5, b=0.75$).
+   - **Dense**: `BAAI/bge-base-en-v1.5` embeddings (768-dim, normalized) indexed with FAISS (`IndexFlatIP`).
+   - **Hybrid RRF**: Reciprocal Rank Fusion ($k=60$) combining BM25 and Dense ranking.
+   - **Reranker**: `cross-encoder/ms-marco-MiniLM-L-6-v2`.
    - **Evaluation Metric**: Recall@K (K = 1, 3, 5, 10) against gold chunk IDs.
 
 ## Development Conventions
@@ -80,4 +100,3 @@ LegalRAG/
 - **File Storage**: Use Apache Parquet (`.parquet`) for tabular data, always saved with `index=False`. Use JSON for eval benchmarks and metrics.
 - **Court Identification**: Use `court_code` column first; fall back to the first 4 characters of `cnr` if `court_code` is missing.
 - **Remote vs Local Paths**: Paths starting with `/kaggle/working/` or `/content/` are meant for the remote execution environment and do not exist on the local filesystem.
-- **Testing**: There is no automated unit test suite (`pytest`/`unittest`). Verification is done by executing standalone scripts (`profile_data.py`, `analyze_courts.py`) and inspecting stdout metrics.

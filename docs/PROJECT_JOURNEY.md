@@ -37,7 +37,7 @@ Key metadata attributes tracked per decision:
 ## 3. Corpus Construction
 
 ### Exploratory Ingestion
-Early experiments explored collection scripts (`download_subset.py` for 5k records and `collect_corpus.py` for 20k balanced records). An intermediate 80k experiment provided preliminary baseline indicators.
+Early experiments explored collection scripts (`scripts/download_subset.py` for 5k records and `scripts/collect_corpus.py` for 20k balanced records). An intermediate 80k experiment provided preliminary baseline indicators.
 
 ### Final 100k Corpus Ingestion
 For the definitive experiment, the corpus was collected from scratch to assemble **100,000 unique High Court judgments**:
