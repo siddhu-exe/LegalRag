@@ -254,3 +254,43 @@ python3 -c "import json; data = json.load(open('gold_eval.json')); assert len(da
 # 3. Verify FAISS index vector count
 python3 -c "import faiss; index = faiss.read_index('dense.index'); assert index.ntotal == 538079, f'Expected 538079, got {index.ntotal}'; print('FAISS Index OK: 538,079 vectors')"
 ```
+
+---
+
+## 8. Running the FastAPI Backend Service
+
+The LegalRAG service supports dual runtime modes:
+1. **`local_stub` (Default)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop).
+2. **`production`**: Full retrieval across 538,079 chunks using BM25, FAISS, Cross-Encoder, and Google Gemini.
+
+### A. Local Development (`local_stub` mode)
+No heavy models or GPU required (< 100 MB RAM):
+```bash
+# Set environment
+export ENVIRONMENT=local_stub
+export API_PORT=8000
+
+# Start server
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 8000
+```
+
+### B. Production Serving (`production` mode)
+```bash
+# 1. Download artifacts from Hugging Face Hub
+python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+
+# 2. Set environment variables
+export ENVIRONMENT=production
+export GEMINI_API_KEY="your-gemini-api-key"
+export API_PORT=8000
+
+# 3. Start server
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 8000
+```
+
+### C. Running Unit & Integration Tests
+```bash
+# Run all unit tests (retrieval, preprocessing, schemas, config, and API endpoints)
+python -m unittest discover -s tests -v
+```
+

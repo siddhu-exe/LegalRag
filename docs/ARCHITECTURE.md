@@ -64,8 +64,9 @@ LegalRAG is a specialized legal information retrieval and question-answering arc
 │   {passage_text}                                                            │
 │                                      │                                      │
 │                                      ▼                                      │
-│            LLM Generation Layer (OpenAI-compatible -> OmniRoute)            │
+│            LLM Generation Layer (Google Gemini - gemini-3.8-flash)          │
 │            Grounding Instructions, Strict Chunk Attribution, temp=0         │
+│            Strict Error Shielding (prevents API error leak into answers)    │
 │                                      │                                      │
 │                                      ▼                                      │
 │                           Grounded Legal Answer                             │
@@ -143,10 +144,10 @@ The system prompt strictly instructs the generation model to:
 - Acknowledge when the context is insufficient rather than generating unsupported assertions.
 
 ### 5. LLM Generation Layer
-- **Interface**: OpenAI-compatible client API.
-- **Router**: OmniRoute middleware handling request retries, rate limiting, and model routing.
+- **Interface**: Google Gemini API via official `google-genai` SDK.
+- **Model**: `gemini-3.8-flash` (or configured via `GENERATION_MODEL_NAME`).
 - **Generation Parameters**: `temperature=0.0` (greedy decoding for reproducibility and factual consistency), `max_tokens=1024`.
-- **Checkpointing**: Generated answers are saved immediately to `rag_results.json`.
+- **Error Shielding**: All upstream API errors (auth, quota/rate-limits, network timeouts, invalid requests) are trapped and isolated into structured `GenerationResult` objects and explicit `status="generation_error"` responses, preventing raw error text from leaking into generated answer bodies.
 
 ### 6. Evidence-Grounded Benchmark & Judge Subsystem
 - **Benchmark Construction**: 500 candidate questions generated across 5 question types (Reasoning, Outcome, Fact, Legal Provision, Multi-Hop).
@@ -169,9 +170,9 @@ The system prompt strictly instructs the generation model to:
 | **Chunking & Index Generation** | **Completed** | 538k chunks indexed via BM25 (`bm25.pkl`) and FAISS (`dense.index`). |
 | **Multi-Stage Retrieval Engine** | **Completed** | BM25 + BGE + RRF + Cross-Encoder fully benchmarked. |
 | **RAG Generation & Evaluation** | **Completed** | 497 validated questions evaluated with multi-criteria LLM judge. |
-| **FastAPI Backend Service** | *Planned (Phase 2)* | REST endpoints (`/search`, `/retrieve`, `/generate`, `/evaluate`) with async streaming. |
-| **React UI Application** | *Planned (Phase 2)* | Interactive dashboard with chunk highlighting, citation graph, and court filters. |
-| **Production Vector Serving** | *Planned (Phase 2)* | Quantized index serving with Milvus/Qdrant or FAISS IVFPQ for sub-50ms latency. |
+| **FastAPI Backend Service** | **Completed** | REST endpoints (`/health`, `/query`) with granular latency attribution and dual runtime modes (`local_stub` / `production`). |
+| **Docker & Cloud Deployment** | **Completed** | Hugging Face Spaces Docker containerization and Hub artifact download automation. |
+| **React / Streamlit UI** | *Planned (Phase 2)* | Interactive dashboard with chunk highlighting, citation graph, and court filters. |
 
 ---
 
