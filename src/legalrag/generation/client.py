@@ -1,45 +1,36 @@
 """
-OpenAI-compatible client interface for LegalRAG generation layer.
-Routes requests via OmniRoute / configured OpenAI-compatible gateway with greedy decoding (temperature=0.0).
+Google Gemini generation client interface for the LegalRAG generation layer.
 
-Includes graceful error shielding to prevent API error leakage into generation outputs.
+Implements grounded legal QA generation via the official google-genai SDK
+with greedy decoding (temperature=0.0) and explicit error shielding.
 """
 
 import os
 import logging
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List, Generator, AsyncGenerator
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 try:
-    from openai import (
-        OpenAI,
-        AsyncOpenAI,
-        OpenAIError,
-        APIError,
-        APIConnectionError,
-        RateLimitError,
-        AuthenticationError,
-        BadRequestError,
-        InternalServerError,
-    )
+    from google import genai
+    from google.genai import types
+    from google.genai import errors as genai_errors
 except ImportError:
-    OpenAI = None  # type: ignore
-    AsyncOpenAI = None  # type: ignore
-    OpenAIError = Exception  # type: ignore
-    APIError = Exception  # type: ignore
-    APIConnectionError = Exception  # type: ignore
-    RateLimitError = Exception  # type: ignore
-    AuthenticationError = Exception  # type: ignore
-    BadRequestError = Exception  # type: ignore
-    InternalServerError = Exception  # type: ignore
+    genai = None  # type: ignore
+    types = None  # type: ignore
+    genai_errors = None  # type: ignore
 
 
 class GenerationError(Exception):
     """Custom exception raised when upstream LLM API generation fails."""
 
-    def __init__(self, message: str, status_code: Optional[int] = None, error_type: str = "api_error"):
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        error_type: str = "generation_error",
+    ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
@@ -54,7 +45,7 @@ class GenerationResult:
     """
 
     text: Optional[str] = None
-    status: str = "success"  # "success", "api_error", "rate_limited", "auth_error", "bad_request"
+    status: str = "success"  # "success", "api_error", "rate_limited", "auth_error", "bad_request", "empty_response"
     error_message: Optional[str] = None
     error_type: Optional[str] = None
     model_name: str = ""
@@ -70,40 +61,31 @@ class GenerationResult:
 
 class LegalGenerationClient:
     """
-    Generation client for executing grounded legal QA against an OpenAI-compatible endpoint.
-    Provides strict error isolation to prevent upstream OmniRoute error strings from leaking into answers.
+    Generation client for executing grounded legal QA against Google Gemini models.
+    Provides strict error isolation to prevent upstream error strings from leaking into answers.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None,
-        model_name: str = "gpt-4-turbo-preview",
+        model_name: str = "gemini-3.8-flash",
     ):
-        if OpenAI is None:
+        if genai is None:
             raise ImportError(
-                "openai package is required for LegalGenerationClient. Install it via pip install openai."
+                "google-genai package is required for LegalGenerationClient. "
+                "Install it via: pip install google-genai"
             )
 
-        self.api_key = api_key or os.getenv("OMNIROUTE_API_KEY") or os.getenv("OPENAI_API_KEY", "dummy-key")
-        self.base_url = base_url or os.getenv("OMNIROUTE_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+        resolved_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not resolved_key or not resolved_key.strip():
+            raise ValueError(
+                "Google Gemini API key is required. Set 'GEMINI_API_KEY' environment variable "
+                "or pass 'api_key' to LegalGenerationClient."
+            )
+
+        self._api_key = resolved_key
         self.model_name = model_name
-
-        self.client = OpenAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-        )
-        self.async_client: Optional[Any] = None
-
-    def _get_async_client(self) -> Any:
-        if self.async_client is None:
-            if AsyncOpenAI is None:
-                raise ImportError("AsyncOpenAI requires openai package.")
-            self.async_client = AsyncOpenAI(
-                api_key=self.api_key,
-                base_url=self.base_url,
-            )
-        return self.async_client
+        self.client = genai.Client(api_key=self._api_key)
 
     def generate(
         self,
@@ -114,38 +96,46 @@ class LegalGenerationClient:
     ) -> GenerationResult:
         """
         Executes generation and returns a typed GenerationResult.
-        Traps all API errors gracefully to prevent error leak into downstream evaluation or UI.
+        Traps all API and connection errors gracefully to prevent error leaks into answers.
         """
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
+            config = types.GenerateContentConfig(
+                system_instruction=system_prompt,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_output_tokens=max_tokens,
             )
 
-            choice = response.choices[0]
-            content = choice.message.content
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=user_prompt,
+                config=config,
+            )
 
-            # Guard against None or empty response
-            if content is None:
+            # Extract generated text
+            content = response.text
+            if content is None or not content.strip():
                 return GenerationResult(
                     text=None,
                     status="empty_response",
-                    error_message="Model returned empty content payload.",
-                    error_type="empty_response",
+                    error_message="Gemini model returned empty content payload.",
+                    error_type="EmptyResponseError",
                     model_name=self.model_name,
                 )
 
-            usage = getattr(response, "usage", None)
-            prompt_tokens = usage.prompt_tokens if usage else None
-            completion_tokens = usage.completion_tokens if usage else None
-            total_tokens = usage.total_tokens if usage else None
+            # Extract token usage and finish reason if available
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            finish_reason = None
+
+            if getattr(response, "usage_metadata", None) is not None:
+                usage = response.usage_metadata
+                prompt_tokens = getattr(usage, "prompt_token_count", None)
+                completion_tokens = getattr(usage, "candidates_token_count", None)
+                total_tokens = getattr(usage, "total_token_count", None)
+
+            if getattr(response, "candidates", None) and len(response.candidates) > 0:
+                finish_reason = str(getattr(response.candidates[0], "finish_reason", "STOP"))
 
             return GenerationResult(
                 text=content,
@@ -154,52 +144,58 @@ class LegalGenerationClient:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
-                finish_reason=getattr(choice, "finish_reason", None),
+                finish_reason=finish_reason,
             )
 
-        except AuthenticationError as e:
-            logger.error("Authentication error during generation: %s", str(e))
+        except genai_errors.ClientError as exc:
+            # 4xx HTTP client errors (auth, bad request, rate limit)
+            status_code = getattr(exc, "code", None)
+            err_type = "ClientError"
+            status = "api_error"
+            if status_code == 401 or status_code == 403:
+                status = "auth_error"
+            elif status_code == 429:
+                status = "rate_limited"
+            elif status_code == 400:
+                status = "bad_request"
+
+            logger.error("Gemini API ClientError (%s): %s", status, str(exc))
             return GenerationResult(
                 text=None,
-                status="auth_error",
-                error_message=f"Authentication failed with LLM gateway: {str(e)}",
-                error_type="AuthenticationError",
+                status=status,
+                error_message=f"Gemini API client error: {str(exc)}",
+                error_type=err_type,
                 model_name=self.model_name,
             )
-        except RateLimitError as e:
-            logger.error("Rate limit exceeded on LLM gateway: %s", str(e))
-            return GenerationResult(
-                text=None,
-                status="rate_limited",
-                error_message=f"Rate limit exceeded: {str(e)}",
-                error_type="RateLimitError",
-                model_name=self.model_name,
-            )
-        except BadRequestError as e:
-            logger.error("Bad request to LLM gateway: %s", str(e))
-            return GenerationResult(
-                text=None,
-                status="bad_request",
-                error_message=f"Bad request payload to model: {str(e)}",
-                error_type="BadRequestError",
-                model_name=self.model_name,
-            )
-        except (APIConnectionError, InternalServerError, APIError) as e:
-            logger.error("API gateway / connection error during generation: %s", str(e))
+
+        except genai_errors.ServerError as exc:
+            # 5xx HTTP server errors
+            logger.error("Gemini API ServerError: %s", str(exc))
             return GenerationResult(
                 text=None,
                 status="api_error",
-                error_message=f"Upstream gateway error: {str(e)}",
-                error_type=type(e).__name__,
+                error_message=f"Gemini API server error: {str(exc)}",
+                error_type="ServerError",
                 model_name=self.model_name,
             )
-        except Exception as e:
-            logger.error("Unexpected error during LLM generation: %s", str(e))
+
+        except genai_errors.APIError as exc:
+            logger.error("Gemini API general APIError: %s", str(exc))
             return GenerationResult(
                 text=None,
                 status="api_error",
-                error_message=f"Unexpected generation failure: {str(e)}",
-                error_type=type(e).__name__,
+                error_message=f"Gemini API error: {str(exc)}",
+                error_type="APIError",
+                model_name=self.model_name,
+            )
+
+        except Exception as exc:
+            logger.error("Unexpected error during Gemini generation: %s", str(exc))
+            return GenerationResult(
+                text=None,
+                status="api_error",
+                error_message=f"Unexpected generation failure: {str(exc)}",
+                error_type=type(exc).__name__,
                 model_name=self.model_name,
             )
 
@@ -211,7 +207,7 @@ class LegalGenerationClient:
         max_tokens: int = 1024,
     ) -> str:
         """
-        Legacy interface for backward compatibility.
+        Executes generation and returns the generated text string.
         Raises GenerationError on API failure rather than returning raw error strings.
         """
         result = self.generate(
@@ -229,39 +225,6 @@ class LegalGenerationClient:
 
         return result.text
 
-    async def generate_stream(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        temperature: float = 0.0,
-        max_tokens: int = 1024,
-    ) -> AsyncGenerator[str, None]:
-        """
-        Async streaming generation generator for real-time token delivery over SSE.
-        """
-        client = self._get_async_client()
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
 
-        try:
-            stream = await client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True,
-            )
-
-            async for chunk in stream:
-                delta = chunk.choices[0].delta.content if chunk.choices else None
-                if delta:
-                    yield delta
-
-        except Exception as e:
-            logger.error("Error during streaming generation: %s", str(e))
-            raise GenerationError(
-                message=f"Streaming generation failure: {str(e)}",
-                error_type=type(e).__name__,
-            )
+# Alias for explicit naming
+GeminiGenerationClient = LegalGenerationClient

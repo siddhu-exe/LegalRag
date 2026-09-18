@@ -17,7 +17,7 @@ from legalrag.api.config import Settings, get_settings
 from legalrag.retrieval.bm25 import BM25Retriever
 from legalrag.retrieval.dense import DenseRetriever
 from legalrag.retrieval.reranker import CrossEncoderReranker
-from legalrag.generation.client import GenerationResult
+from legalrag.generation.client import GenerationResult, LegalGenerationClient
 
 logger = logging.getLogger(__name__)
 
@@ -288,12 +288,18 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
         model_name=settings.reranker_model_name,
     )
 
+    logger.info("Initializing Gemini generation client (%s)", settings.generation_model_name)
+    generator = LegalGenerationClient(
+        api_key=settings.gemini_api_key,
+        model_name=settings.generation_model_name,
+    )
+
     return PipelineComponents(
         bm25=bm25,
         dense=dense,
         reranker=reranker,
         chunks=chunks_df,
-        generator=None,  # Configured generation client (e.g. Gemini) attached in future step
+        generator=generator,
         environment="production",
     )
 
