@@ -17,3 +17,4 @@ httpx>=0.26.0
 
 # Vector Indexing (Default CPU; for GPU environments use faiss-gpu==1.7.2)
 faiss-cpu>=1.7.4
+
