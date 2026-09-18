@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "legalrag"
+version = "0.1.0"
+description = "Hybrid Retrieval & Evidence-Grounded Question Answering over Indian High Court Judgments"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Siddharth", email = "siddharth@example.com"}
+]
+keywords = [
+    "nlp",
+    "rag",
+    "legal-ai",
+    "retrieval-augmented-generation",
+    "bm25",
+    "faiss",
+    "hybrid-search",
+    "indian-high-courts"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Legal Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic"
+]
+dependencies = [
+    "torch>=2.1.2",
+    "transformers>=4.36.2",
+    "sentence-transformers>=2.3.1",
+    "rank-bm25>=0.2.2",
+    "datasets>=2.16.1",
+    "pandas>=2.1.4",
+    "pyarrow>=14.0.2",
+    "langchain>=0.1.0",
+    "langchain-community>=0.0.10",
+    "openai>=1.7.2",
+    "tqdm>=4.66.1",
+    "numpy>=1.26.3",
+    "scipy>=1.11.4",
+    "huggingface_hub>=0.20.0",
+    "httpx>=0.26.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "isort>=5.13.0",
+    "flake8>=7.0.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.6.0"
+]
+gpu = [
+    "faiss-gpu>=1.7.2"
+]
+cpu = [
+    "faiss-cpu>=1.7.4"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | rag
+  | build
+  | dist
+  | backup
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = [".git", "rag", ".venv", "backup", "build", "dist"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+]
+python_files = ["test_*.py"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
