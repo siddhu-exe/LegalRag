@@ -1,0 +1,65 @@
+# Archives & Large Backups
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+kaggle_100k_backup_before_rag_generation.zip
+
+# Python & Virtual Environments
+rag/
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Data & Model Artifacts
+data/
+*.parquet
+*.pkl
+*.pickle
+*.ipx
+*.faiss
+*.bin
+*.pt
+*.pth
+*.onnx
+
+
+# Environment Variables & Secrets
+.env
+.env.*
+*.env
+
+# IDE & Editor Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
