@@ -1079,7 +1079,8 @@ notebook = {
     "nbformat_minor": 4
 }
 
-output_path = Path("/home/siddharth/Desktop/Projects/projects/LegalRAG/Notebooks/legalrag_refactored.ipynb")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+output_path = REPO_ROOT / "Notebooks" / "legalrag_refactored.ipynb"
 with open(output_path, 'w') as f:
     json.dump(notebook, f, indent=1)
 
