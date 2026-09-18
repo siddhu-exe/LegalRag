@@ -1,102 +1,158 @@
-# CLAUDE.md
+# LegalRAG — Project Context for Claude
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file is read automatically by Claude Code at the start of every session in
+this repo. It exists so context doesn't have to be re-explained each time.
+Keep it updated as decisions change — treat it as the project's memory, not a
+one-time README.
 
-## Project Overview
+## What this project is
 
-LegalRAG is a retrieval-augmented generation (RAG) system built over Indian High Court judgments sourced from the Hugging Face dataset `overthelex/indian-court-decisions` (`high_courts` config). The codebase operates across two environments:
-- **Local environment (this repo)**: Lightweight data collection, profiling, exploratory scripts, modular Python package (`src/legalrag`), and unit tests.
-- **Remote GPU environment (Kaggle / Colab)**: Compute-heavy pipeline execution (corpus cleaning, locked baseline chunking, Gemini-powered gold eval benchmark generation, embedding generation with `bge-base-en-v1.5`, FAISS indexing, and Recall@K retrieval benchmarking).
+A hybrid-retrieval RAG system over 100,000 Indian High Court judgments, built
+as a flagship **AI Engineering** portfolio project (not ML Engineering, not
+MLOps — see "Positioning" below). The differentiator is a real evaluation
+harness (retrieval scoreboard + LLM-judge generation metrics on a 497-question
+gold benchmark), not just a working demo.
 
-## Environment Setup
+Target audience: Indian fresher AI/GenAI engineering job market, 2026.
 
-- **Local Python Environment**: Virtual environment located at `rag/` (Python 3.12, managed with `uv`).
-- **Dependencies**: Defined in `pyproject.toml`, `requirements.txt`, and `requirements-dev.txt`.
-  - Install dependencies: `source rag/bin/activate && uv pip install -r requirements.txt`
-  - Install editable package: `uv pip install -e .`
-  - Adding local packages: `source rag/bin/activate && uv pip install <package>`
-- **Hugging Face Authentication**: Required for accessing the gated dataset (`hf auth login` or `huggingface_hub.login()`).
+## Current state (update this section as work progresses)
 
-## Common Commands
+- [x] 100k judgment corpus ingested, cleaned, chunked (538,079 chunks) — frozen
+      artifacts on Kaggle
+- [x] BM25 + Dense (BGE-base) + Hybrid RRF + Cross-encoder reranker, all
+      benchmarked with Recall@1/5/10/50 on the 497-question set
+- [x] 497-question evidence-grounded gold benchmark + LLM-judge eval
+      (relevance, faithfulness, citation correctness, unsupported claim rate,
+      hallucination rate, overall score)
+- [x] Refactored into `src/legalrag/` package: preprocessing/, retrieval/,
+      generation/, evaluation/ — with pyproject.toml, 20 unit tests, atomic
+      conventional commits
+- [ ] Fix OmniRoute error-leak bug (see "Known issues" below) — NOT yet fixed
+- [ ] Add per-stage latency logging (retrieve_ms / rerank_ms / generate_ms /
+      total_ms)
+- [ ] Build FastAPI `/query` endpoint wrapping the existing pipeline classes
+- [ ] Deploy to Hugging Face Spaces, artifacts hosted on Hugging Face Hub
+- [ ] Minimal frontend (Streamlit is fine) — query box, answer, cited chunks
+      with source metadata, latency shown
+- [ ] README rewritten to lead with eval numbers + live demo link, not a
+      feature list
+- [ ] Honest paragraph addressing the reranker Recall@5/10 dip (see below)
 
-### Activate Environment
-```bash
-source rag/bin/activate
+## Locked architecture — do not change without explicit discussion
+
+These were deliberately chosen and benchmarked. Don't "improve" them silently;
+if something looks suboptimal, flag it and ask before changing.
+
+- **Dataset**: `overthelex/indian-court-decisions`, config `high_courts`,
+  split `train`, streamed with `buffer_size=10000, seed=42`
+- **Corpus size**: 100,000 judgments — this is FINAL, not an intermediate
+  step. Do not re-embed at a different scale. (An earlier 80k run exists as
+  throwaway scaffolding, superseded — not a numbered experiment.)
+- **Chunking**: `RecursiveCharacterTextSplitter`, chunk_size=1200,
+  chunk_overlap=200, min_chunk_length=100. Produces 538,079 chunks.
+- **Retrieval cascade**: BM25 (k1=1.5, b=0.75, regex tokenization) top-50 +
+  Dense (BAAI/bge-base-en-v1.5, 768-dim, FAISS IndexFlatIP) top-50 → RRF
+  fusion (k=60) → top-50 → cross-encoder rerank
+  (cross-encoder/ms-marco-MiniLM-L-6-v2) → top-5 → LLM context
+- **Generation**: OpenAI-compatible client via OmniRoute, temperature=0,
+  max_tokens=1024
+- **Frozen artifacts** (do not regenerate unless the artifact is provably
+  corrupted): `legal_judgments_clean.parquet`, `legal_chunks.parquet`,
+  `bm25.pkl`, `dense.index` + embedding shards, `gold_eval.json` (497
+  questions), `rag_results.json`, `rag_evaluation.json`
+
+## Known issues — must be fixed, not hidden
+
+1. **OmniRoute error leak (unfixed as of this writing)**: When the OmniRoute
+   API returned a routing/model error (e.g. "model no longer available"),
+   that error string was saved into `generated_answer` and then scored by the
+   LLM judge as a real answer — inflating the hallucination rate and dragging
+   down faithfulness. Any new generation code (including the FastAPI
+   endpoint) MUST detect API/generation failures explicitly and return a
+   distinct error state, never let an error string flow into the answer
+   field or get judged as content. This is also the LLMOps / graceful-failure
+   story for the writeup — frame it as "found via own eval pipeline, root
+   caused, fixed" once done.
+2. **Reranker hurts Recall@5/Recall@10**: Cross-encoder reranking improved
+   Recall@1 (+3.42pp over hybrid-RRF) but *decreased* Recall@5 (0.5111 →
+   0.4869) and Recall@10 (0.5614 → 0.5594) versus hybrid-RRF alone. Likely
+   cause: `ms-marco-MiniLM-L-6-v2` is not domain-adapted to legal text. This
+   must be stated honestly in the README/writeup, not glossed over — it's a
+   good "I read my own numbers critically" signal if framed right, and a red
+   flag in an interview if presented as an unambiguous win.
+
+## Positioning — AI Engineering, not ML Engineering / not MLOps
+
+- Say "AI Engineer" / "GenAI Engineer" in resume bullets, READMEs, and any
+  pitch. Not "ML Engineer."
+- Why: ML Engineers train models from scratch (architectures, gradient
+  descent, hyperparameter search). This project applies pre-trained models
+  (BGE embeddings, MS-MARCO cross-encoder, an LLM via API) — that's AI
+  Engineering: RAG architecture, retrieval engineering, evaluation
+  infrastructure, latency, production failure handling.
+- Full MLOps (drift monitoring, automated retraining) is NOT needed and
+  should not be added — there's no trained-from-scratch model to retrain or
+  monitor for drift. Don't scope-creep into this.
+- Light LLMOps IS in scope: graceful API failure handling, distinguishing
+  system errors from bad answers, basic request/error-rate observability.
+  This is achievable at solo-project scale and expected in current AI
+  engineer job descriptions.
+
+## Hardware / environment constraints — important for how work gets split
+
+- **Local dev laptop**: 6GB RAM, DDR1, very old CPU. Cannot run the real
+  pipeline locally — the full stack (BM25 index + FAISS index + BGE-base
+  model + cross-encoder model + torch/transformers overhead) needs ~4.15GB
+  RAM just to load, leaving no headroom on a 6GB machine, and the CPU
+  generation is old enough that PyTorch/FAISS may run very slowly or hit
+  missing-instruction-set issues.
+- **Consequence — where code runs**:
+  - Local laptop: write and test code only, against a small stub/toy index
+    (a few hundred fake chunks, no real BM25/FAISS/model weights loaded).
+    Used for verifying request/response shapes, error handling, and running
+    the existing unit test suite (all tests use stdlib unittest, cheap to
+    run anywhere).
+  - Kaggle: has the real frozen artifacts and 30GB RAM + 2 GPUs. Used for any
+    real integration testing against the actual 538k-chunk index, and for
+    uploading artifacts to Hugging Face Hub.
+  - Hugging Face: Spaces hosts the deployed FastAPI app (+ frontend); Hub
+    hosts the large artifacts (bm25.pkl ~579MB, dense.index ~1.65GB,
+    legal_chunks.parquet ~261MB) so the Space downloads them at startup
+    rather than needing them baked into a repo or built on a weak machine.
+- When asked to "run the pipeline" or "test retrieval end-to-end," check
+  which environment the request implies — don't attempt full-index operations
+  assuming a local machine that can't hold them.
+
+## Package structure (already built — extend, don't restructure)
+
+```
+src/legalrag/
+  preprocessing/
+    cleaner.py    # control-char stripping, >1% corruption detection
+    chunker.py    # LegalChunker, locked hyperparameters
+  retrieval/
+    bm25.py       # BM25Retriever, legal regex tokenization
+    dense.py      # DenseRetriever, BGE-base + FAISS IndexFlatIP
+    fusion.py     # Reciprocal Rank Fusion, k=60
+    reranker.py   # Cross-encoder reranker
+  generation/
+    prompts.py    # locked RAG context formatting + system prompt
+    client.py     # OpenAI-compatible greedy decoding interface
+  evaluation/
+    grounding.py  # find_gold_chunks evidence matcher
+    metrics.py    # calculate_recall_at_k, failure taxonomy, aggregation
+tests/            # 20 unit tests, stdlib unittest + pytest compatible
 ```
 
-### Run Unit Tests
-```bash
-PYTHONPATH=src python -m unittest discover -s tests
-# or with pytest
-pytest tests/
-```
+New work (FastAPI app, latency logging, etc.) should live under
+`src/legalrag/api/` or similar, importing the existing retrieval/generation
+classes rather than reimplementing pipeline logic.
 
-### Data Collection & Profiling Scripts
-```bash
-# Collect 5,000 judgment subset (simple stream to data/raw/judgments.parquet)
-python scripts/download_subset.py
+## Style / working preferences for this project
 
-# Collect 20,000 balanced judgment corpus (with exact-text dedup and 300-1500 per-court bounds)
-python scripts/collect_corpus.py
-
-# Profile dataset shape, missing values, duplicates, text length distributions, and year/court counts
-python scripts/profile_data.py
-
-# Analyze CNR prefix court distribution
-python scripts/analyze_courts.py
-```
-
-### Notebook Generation
-```bash
-# Generates/updates Notebooks/legalrag_refactored.ipynb
-python scripts/write_notebook.py
-```
-
-## Architecture & Code Structure
-
-```
-LegalRAG/
-├── pyproject.toml              # Build metadata, packaging & tool configs
-├── requirements.txt            # Pinned runtime dependencies
-├── requirements-dev.txt        # Development & testing tooling
-├── src/
-│   └── legalrag/               # Core modular library
-│       ├── preprocessing/      # Cleaner & locked LegalChunker
-│       ├── retrieval/          # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/         # RAG prompt formatting & greedy generation client
-│       └── evaluation/         # Gold evidence matching & failure taxonomy metrics
-├── tests/                      # Comprehensive unit test suite
-├── scripts/
-│   ├── download_subset.py      # First-pass 5k sample collector → data/raw/judgments.parquet
-│   ├── collect_corpus.py       # Balanced 20k collector with exact dedup & per-court limits
-│   ├── profile_data.py         # Dataset profiling script
-│   ├── analyze_courts.py       # Analyzes CNR prefix (court code) distribution
-│   └── write_notebook.py       # Programmatic generator for Kaggle/Colab pipeline notebook
-├── data/
-│   ├── raw/                    # Raw collected Parquet files
-│   └── processed/              # Cleaned and chunked corpus artifacts
-├── Notebooks/
-│   ├── legalrag.ipynb          # Original experimental pipeline notebook
-│   ├── legalrag_refactored.ipynb # Idempotent, checkpointed pipeline notebook
-│   └── legalrag-100k-final.ipynb # 100k scale experimental notebook
-└── docs/                       # Research and technical documentation suite
-```
-
-### Pipeline Stages
-1. **Streaming Collection**: Uses Hugging Face `load_dataset(..., streaming=True)` with `.shuffle(seed=42, buffer_size=10_000)`. Never materializes the entire raw dataset locally.
-2. **Quality Cleaning**: Drops documents where control characters exceed 1% of text length (handles known corrupt/Caesar-shifted entries); strips remaining control characters and normalizes whitespace.
-3. **Chunking (Locked Baseline)**: 1,200 character chunk size, 200 character overlap, minimum chunk length 100 characters.
-4. **Eval Benchmark Generation**: 100 sampled judgments evaluated with structured question generation (`gemini-3.5-flash-lite`), mapping `supporting_text` to gold chunk IDs.
-5. **Retrieval Baselines**:
-   - **BM25**: Tokenized corpus indexed via `rank-bm25` ($k_1=1.5, b=0.75$).
-   - **Dense**: `BAAI/bge-base-en-v1.5` embeddings (768-dim, normalized) indexed with FAISS (`IndexFlatIP`).
-   - **Hybrid RRF**: Reciprocal Rank Fusion ($k=60$) combining BM25 and Dense ranking.
-   - **Reranker**: `cross-encoder/ms-marco-MiniLM-L-6-v2`.
-   - **Evaluation Metric**: Recall@K (K = 1, 3, 5, 10) against gold chunk IDs.
-
-## Development Conventions
-
-- **Random Seed**: Always use `seed=42` for shuffling, sampling, and splits.
-- **File Storage**: Use Apache Parquet (`.parquet`) for tabular data, always saved with `index=False`. Use JSON for eval benchmarks and metrics.
-- **Court Identification**: Use `court_code` column first; fall back to the first 4 characters of `cnr` if `court_code` is missing.
-- **Remote vs Local Paths**: Paths starting with `/kaggle/working/` or `/content/` are meant for the remote execution environment and do not exist on the local filesystem.
+- Staged collaboration: brainstorm/plan before building.
+- Direct answers before elaboration.
+- Plain-text, minimal responses preferred generally, but this file itself is
+  reference documentation and can stay structured/detailed.
+- Preserve existing code style, variable names, and experiment history when
+  refactoring — don't silently rewrite working code for taste reasons.
