@@ -3,7 +3,7 @@ Configuration management for the LegalRAG FastAPI backend service.
 
 Supports two runtime environments:
 - 'local_stub': Lightweight local development mode without loading heavy models or FAISS index.
-- 'production': Full pipeline execution with real retrieval indexes and OmniRoute LLM generation.
+- 'production': Full pipeline execution with real retrieval indexes and Google Gemini LLM generation.
 """
 
 from functools import lru_cache
@@ -43,21 +43,16 @@ class Settings(BaseSettings):
         description="Hugging Face Hub access token for private repositories or rate limits.",
     )
 
-    # Model identifiers (locked architecture defaults)
+    # Model identifiers (locked architecture defaults + Gemini generation)
     embedding_model_name: str = "BAAI/bge-base-en-v1.5"
     reranker_model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    generation_model_name: str = "gpt-4-turbo-preview"
+    generation_model_name: str = "gemini-3.8-flash"
 
-    # OmniRoute / OpenAI-compatible Gateway configuration (externalized secrets)
-    omniroute_base_url: Optional[str] = Field(
+    # Google Gemini API configuration (externalized secrets)
+    gemini_api_key: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("omniroute_base_url", "OMNIROUTE_BASE_URL", "OPENAI_BASE_URL"),
-        description="Base URL for OmniRoute or OpenAI-compatible generation gateway.",
-    )
-    omniroute_api_key: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("omniroute_api_key", "OMNIROUTE_API_KEY", "OPENAI_API_KEY"),
-        description="API key for OmniRoute or OpenAI-compatible generation gateway.",
+        validation_alias=AliasChoices("gemini_api_key", "GEMINI_API_KEY"),
+        description="Google Gemini API key for grounded generation.",
     )
 
     # API Server Network Binding
@@ -96,9 +91,9 @@ class Settings(BaseSettings):
         Local stub mode does not require external credentials.
         """
         if self.environment == "production":
-            if not self.omniroute_api_key or not self.omniroute_api_key.strip():
+            if not self.gemini_api_key or not self.gemini_api_key.strip():
                 raise ValueError(
-                    "Production environment requires 'OMNIROUTE_API_KEY' (or 'OPENAI_API_KEY') to be set."
+                    "Production environment requires 'GEMINI_API_KEY' to be set."
                 )
         return self
 
