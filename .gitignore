@@ -6,6 +6,7 @@
 *.rar
 *.7z
 kaggle_100k_backup_before_rag_generation.zip
+backup/
 
 # Python & Virtual Environments
 rag/
