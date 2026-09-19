@@ -38,7 +38,10 @@ source rag/bin/activate
 ```bash
 pip install --upgrade pip
 
-# Core ML and RAG dependencies
+# Install pinned repository dependencies
+pip install -r requirements.txt
+
+# Or install core ML, RAG, and API packages directly:
 pip install \
     torch==2.1.2 \
     transformers==4.36.2 \
@@ -48,7 +51,12 @@ pip install \
     pandas==2.1.4 \
     pyarrow==14.0.2 \
     langchain==0.1.0 \
-    openai==1.7.2 \
+    google-genai>=1.0.0 \
+    fastapi>=0.109.0 \
+    uvicorn[standard]>=0.27.0 \
+    pydantic>=2.5.0 \
+    pydantic-settings>=2.1.0 \
+    huggingface-hub>=0.20.0 \
     tqdm==4.66.1 \
     numpy==1.26.3 \
     scipy==1.11.4
@@ -259,20 +267,22 @@ python3 -c "import faiss; index = faiss.read_index('dense.index'); assert index.
 
 ## 8. Running the FastAPI Backend Service
 
-The LegalRAG service supports dual runtime modes:
-1. **`local_stub` (Default)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop).
-2. **`production`**: Full retrieval across 538,079 chunks using BM25, FAISS, Cross-Encoder, and Google Gemini.
+The LegalRAG service supports dual runtime modes for zero-overhead local development vs. full production scale:
+1. **`local_stub` (Default)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop, < 100 MB RAM).
+2. **`production`**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Google Gemini 3.8 Flash (`gemini-3.8-flash`).
 
 ### A. Local Development (`local_stub` mode)
-No heavy models or GPU required (< 100 MB RAM):
+No heavy models, disk artifacts, or GPU required:
 ```bash
-# Set environment
+# Set environment (defaults to local_stub and port 7860)
 export ENVIRONMENT=local_stub
-export API_PORT=8000
+export API_PORT=7860
 
 # Start server
-uvicorn legalrag.api.main:app --host 0.0.0.0 --port 8000
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
+- Interactive Swagger UI: `http://localhost:7860/docs`
+- Health check: `http://localhost:7860/health`
 
 ### B. Production Serving (`production` mode)
 ```bash
@@ -282,15 +292,30 @@ python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --targe
 # 2. Set environment variables
 export ENVIRONMENT=production
 export GEMINI_API_KEY="your-gemini-api-key"
-export API_PORT=8000
+export API_PORT=7860
 
-# 3. Start server
-uvicorn legalrag.api.main:app --host 0.0.0.0 --port 8000
+# 3. Start production server
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 
-### C. Running Unit & Integration Tests
+### C. Docker Container (Hugging Face Docker Spaces)
+Complies with Hugging Face Spaces specification (runs as non-root user `user` with UID `1000`, exposes port `7860`):
 ```bash
-# Run all unit tests (retrieval, preprocessing, schemas, config, and API endpoints)
+# Build Docker image
+docker build -t legalrag-api .
+
+# Run Docker container
+docker run -p 7860:7860 \
+    -e ENVIRONMENT=production \
+    -e GEMINI_API_KEY="your-gemini-api-key" \
+    legalrag-api
+```
+
+### D. Running Unit & Integration Tests
+```bash
+# Run all unit tests (retrieval, preprocessing, schemas, config, and API endpoints via local stub)
 python -m unittest discover -s tests -v
+# Or using pytest
+pytest tests/ -v
 ```
 

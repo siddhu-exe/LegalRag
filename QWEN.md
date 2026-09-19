@@ -1,85 +1,119 @@
 # LegalRAG
 
-Legal-domain RAG (Retrieval-Augmented Generation) system built over Indian High Court judgment texts. The project is currently in the **data/corpus construction and retrieval baselining** phase — no serving or generation layer exists yet.
+Production-hardened, hybrid-retrieval RAG (Retrieval-Augmented Generation) system over 100,000 Indian High Court judgment texts with evidence-grounded evaluation and a FastAPI backend service.
 
 ## Project Overview
 
-- **Source data**: Hugging Face dataset `overthelex/indian-court-decisions`, config `high_courts`, split `train`, consumed in **streaming mode** (never downloaded whole).
-- **Pipeline stages** (each stage's output feeds the next):
-  1. **Collection** — stream + sample judgments with exact-text deduplication and per-court balancing.
-  2. **Profiling / quality analysis** — missing values, text-length distributions, court distribution, corruption detection.
-  3. **Cleaning** — drop documents with >1% control characters; normalize whitespace.
-  4. **Chunking** — baseline params are **locked**: 1200-char chunks, 200-char overlap, minimum chunk length 100.
-  5. **Eval benchmark** — 100 sampled judgments; questions generated with Gemini (`gemini-3.5-flash-lite`, structured JSON via pydantic); gold chunks assigned by exact/fuzzy matching of `supporting_text` against chunks.
-  6. **Retrieval baselines** — BM25 done (frozen), dense retrieval (bge-small-en-v1.5 + FAISS) in progress.
-- **Two working environments**:
-  - **Local** (this repo): lightweight collection/profiling scripts using the `rag/` uv venv.
-  - **Kaggle/Colab GPU**: `Notebooks/legalrag.ipynb` — the heavy lifting (50k corpus build, cleaning, chunking, eval generation, embeddings). Notebook paths like `/content/legalrag_corpus/` and `/kaggle/working/` refer to that remote environment, **not** this repo.
+- **Source data**: Hugging Face dataset `overthelex/indian-court-decisions`, config `high_courts`, split `train`, consumed in **streaming mode** (seed 42, shuffle buffer 10,000).
+- **Scale**: 100,000 High Court decisions across 24 jurisdictions, cleaned and partitioned into **538,079 chunks**.
+- **Multi-Stage Retrieval Cascade**:
+  1. **BM25 Lexical Retrieval**: `BM25Okapi` ($k_1=1.5, b=0.75$) with regex tokenization (top-50 pool).
+  2. **Dense Vector Retrieval**: `BAAI/bge-base-en-v1.5` (768-dim, normalized) + `faiss.IndexFlatIP` (top-50 pool).
+  3. **Reciprocal Rank Fusion (RRF)**: $k=60$, combining BM25 and Dense into top-50 candidate pool.
+  4. **Neural Cross-Encoder Reranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` selecting top-5 RAG context blocks.
+- **Generation & LLMOps**:
+  - Google Gemini 3.8 Flash (`gemini-3.8-flash`) via official `google-genai` SDK at `temperature=0.0`.
+  - Strict exception shielding preventing raw API/rate-limit errors from leaking into answer bodies.
+  - Regex citation validation (`[Chunk ID: ...]`) cross-referenced strictly against retrieved context chunks.
+- **FastAPI Backend (`src/legalrag/api/`)**:
+  - Dual runtime environments: `local_stub` (< 100 MB RAM for development) vs. `production` (full index loading).
+  - High-resolution latency tracking (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`).
+  - Containerized with Docker for Hugging Face Spaces (UID 1000, port 7860).
+- **Evaluation Benchmark**: 497 substring-verified gold questions evaluated with multi-criteria LLM judge.
 
 ## Directory Structure
 
-```
+```text
 LegalRAG/
-├── download_subset.py    # First-pass collector: 5,000 judgments (no dedup/balancing) → data/raw/judgments.parquet
-├── collect_corpus.py     # Balanced collector: 20k target, exact dedup, per-court caps (300 min / 1500 max)
-├── profile_data.py       # Profiles data/raw/judgments.parquet (shape, nulls, dupes, lengths, courts, years)
-├── analyze_courts.py     # CNR-prefix (first 4 chars) distribution analysis
-├── Notebooks/
-│   └── legalrag.ipynb    # Main experimental pipeline (Kaggle/Colab GPU notebook)
-├── data/
-│   ├── raw/              # judgments.parquet (5k subset, ~14 MB)
-│   └── processed/        # empty (future cleaned/chunked artifacts)
-└── rag/                  # uv-managed Python 3.12 virtualenv (gitignored)
+├── README.md                           # Project presentation and benchmark summary
+├── LLMS.md                             # Token-dense full-context summary for AI models
+├── CLAUDE.md                           # Developer instructions and coding standards
+├── QWEN.md                             # Architecture and system documentation
+├── pyproject.toml                      # Standard Python packaging and tool configuration
+├── requirements.txt                    # Pinned runtime dependencies
+├── requirements-dev.txt                # Development & test tooling
+├── Dockerfile                          # Production multi-stage Docker container (HF Spaces UID 1000)
+├── .dockerignore                       # Container build exclusion rules
+├── .gitignore                          # Data, virtualenv, and checkpoint exclusion rules
+├── src/                                # Core modular Python package
+│   └── legalrag/
+│       ├── api/                        # FastAPI service, configuration, schemas, DI
+│       │   ├── config.py               # Pydantic v2 Settings with secret masking & port fallback
+│       │   ├── dependencies.py         # Singleton DI provider (local_stub vs production)
+│       │   ├── main.py                 # Application factory & metadata routes
+│       │   ├── routes.py               # /health and /query with error shielding & latency breakdown
+│       │   └── schemas.py              # Pydantic validation request/response schemas
+│       ├── preprocessing/              # Text cleaner & locked LegalChunker
+│       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
+│       ├── generation/                 # RAG prompt templates & Google GenAI (Gemini 3.8) client
+│       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
+├── tests/                              # Unit test suite (unittest / pytest compatible)
+│   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
+│   ├── test_preprocessing.py           # Cleaner and chunker tests
+│   ├── test_retrieval.py               # BM25 and fusion tests
+│   ├── test_generation.py              # Prompt builder and citation extractor tests
+│   └── test_evaluation.py              # Evidence matching and metrics tests
+├── scripts/                            # Standalone collection, profiling, and helper scripts
+│   ├── download_artifacts.py           # HF Hub artifact downloader for production deployment
+│   ├── download_subset.py              # First-pass 5k sample collector
+│   ├── collect_corpus.py               # Balanced 20k collector with exact dedup
+│   ├── profile_data.py                 # Data profiling and length distribution utility
+│   ├── analyze_courts.py               # Court jurisdiction balance analyzer
+│   └── write_notebook.py               # Notebook generator and sync script
+├── docs/                               # Research and technical documentation suite
+│   ├── PROJECT_JOURNEY.md              # Chronological 15-section engineering narrative
+│   ├── EXPERIMENT_REPORT.md            # Research-grade 100k experiment report
+│   ├── ARCHITECTURE.md                 # System architecture and subsystem specifications
+│   └── REPRODUCIBILITY.md              # Hardware, environment, and checkpoint guide
+└── Notebooks/
+    ├── legalrag-100k-final.ipynb       # 117-cell standalone Kaggle execution notebook
+    ├── legalrag_refactored.ipynb       # Idempotent, checkpointed pipeline notebook
+    └── legalrag.ipynb                  # Original experimental pipeline notebook
 ```
 
-## Environment
+## Environment & Execution
 
-- **Virtualenv**: `rag/` — created with `uv` (Python 3.12.3, system interpreter `/usr/bin/python3`).
-- **Local packages**: `datasets`, `pandas`, `pyarrow`, `numpy`, `tqdm`, `huggingface_hub`, `httpx`.
-- **Notebook-only packages** (installed via `pip -q install` in cells, not present locally): `torch`, `sentence-transformers`, `faiss-gpu`, `langchain-text-splitters`, `rank-bm25`, `google-genai`, `psutil`.
-- There is **no `requirements.txt` or `pyproject.toml`** — dependencies live in the venv and notebook pip cells. If adding local deps, prefer `uv pip install <pkg>` into `rag/`.
+### Dual Runtime Modes
+1. **`local_stub` (Default)**:
+   - In-memory mock retrievers and generators (< 100 MB RAM).
+   - Zero model downloads, zero GPU requirements.
+   - Run locally:
+     ```bash
+     export ENVIRONMENT=local_stub
+     export API_PORT=7860
+     uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
+     ```
+2. **`production`**:
+   - Full 538k-chunk pipeline with `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, and Gemini 3.8 Flash.
+   - Run on Hugging Face Spaces or GPU cloud instance:
+     ```bash
+     python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+     export ENVIRONMENT=production
+     export GEMINI_API_KEY="your-gemini-api-key"
+     export API_PORT=7860
+     uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
+     ```
 
-## Commands
+## Key Facts & Frozen 100k Results
 
-```bash
-# Activate the local environment
-source rag/bin/activate
-
-# Collect data (streaming from Hugging Face; writes to data/raw/)
-python download_subset.py     # 5k simple subset
-python collect_corpus.py      # 20k balanced corpus → data/raw/legal_judgments_20k.parquet
-
-# Profile / analyze
-python profile_data.py
-python analyze_courts.py
-```
-
-Hugging Face auth (`hf auth login` or `login()`) is required for the gated dataset in some environments.
-
-## Development Conventions
-
-- **Random seed 42** everywhere (shuffle, sampling) — keep this consistent for reproducibility.
-- **Storage format**: Parquet exclusively, written with `index=False`.
-- **Court identity**: use `court_code`; fall back to the first 4 characters of `cnr` if missing (derived `sampling_court` column).
-- **Deduplication**: exact `full_text` match via a `seen_texts` set during streaming.
-- **Streaming**: always use `load_dataset(..., streaming=True)` with `.shuffle(seed=42, buffer_size=10_000)`; never materialize the full source dataset.
-- Scripts are standalone and print analysis directly to stdout (no argparse, no logging config) — follow this style.
-- **Metrics**: retrieval quality measured as Recall@K (K = 1, 3, 5, 10) against gold chunk IDs.
-
-## Key Facts & Frozen Results
-
-- **Locked baseline chunking**: 49,629 clean documents → 303,734 chunks (1200 char / 200 overlap / min 100).
-- **BM25 baseline (frozen)**: Recall@1 = 0.20, Recall@3 = 0.24, Recall@5 = 0.28, Recall@10 = 0.33.
-- **Data corruption quirk**: some source documents are **Caesar-cipher shifted (shift 3)** and/or riddled with control characters. Cleaning rule: drop docs where control chars > 1% of text length; otherwise strip control chars and collapse whitespace.
-- **Dense retrieval (in progress)**: `BAAI/bge-small-en-v1.5` with `sentence-transformers` multi-process GPU pooling, `faiss-gpu` for search — notebook ends mid-implementation (embeddings generated, index/eval pending).
+- **Scale**: 100,000 High Court decisions -> 538,079 chunks (1200 char chunk size, 200 overlap, min 100).
+- **Retrieval Recall (497 Gold Questions)**:
+  - BM25 Recall@1: **42.66%** | Recall@50: **63.98%**
+  - Dense (BGE-Base) Recall@1: **19.72%** | Recall@50: **44.67%**
+  - Hybrid-RRF Recall@1: **32.19%** | Recall@50: **65.79%**
+  - Cross-Encoder Reranked Recall@1: **35.61%** | Recall@50: **65.79%**
+- **Generation Quality**:
+  - Faithfulness: **3.40 / 4**
+  - Citation Correctness: **3.25 / 4**
+  - Answer Relevance: **3.10 / 4**
+  - Unsupported Claim Rate: **14.89%**
+  - Retrieval Omission Failure: **51.31%** (primary bottleneck)
 
 ## Testing
 
-No test suite exists yet. Verification is done by running the profiling scripts and inspecting printed statistics.
-
-## Current Status / Next Steps
-
-1. Finish dense retrieval baseline (FAISS index + Recall@K evaluation on `gold_eval.json` questions).
-2. Compare BM25 vs. dense vs. hybrid retrieval.
-3. Bring notebook artifacts (clean corpus, chunks, eval set) back into `data/processed/` locally.
-4. Chunking-strategy experiments beyond the locked baseline, then the generation/QA layer.
+```bash
+# Run unit & integration test suite (runs in local_stub mode)
+python -m unittest discover -s tests -v
+# Or via pytest
+pytest tests/ -v
+```

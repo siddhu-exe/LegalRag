@@ -248,7 +248,13 @@ The research, corpus engineering, retrieval modeling, and RAG evaluation phases 
 - [x] Checkpointed RAG generation and judge evaluation.
 - [x] Comprehensive failure analysis and error taxonomy.
 
-### Next Roadmap (Planned Production Application Layer):
-- [ ] **FastAPI Backend**: Expose low-latency retrieval and streaming generation endpoints.
-- [ ] **React Frontend**: Modern legal search and citation inspection interface.
-- [ ] **Deployment & Containerization**: Dockerized serving with quantized vector indices.
+### Completed Engineering Milestones (Phase 2):
+- [x] **FastAPI Backend (`src/legalrag/api/`)**: Built dual-mode (`local_stub` / `production`) service exposing `/health` and `/query` endpoints with singleton dependency injection and granular latency attribution (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`).
+- [x] **Production Exception Shielding & LLMOps**: Trapped all generation, rate-limit (429), and network errors to prevent raw exception leakage into answers.
+- [x] **Citation Grounding Defense**: Enforced strict cross-referencing between extracted `[Chunk ID: ...]` citations and retrieved top-5 context chunks.
+- [x] **Google Gemini 3.8 Flash Migration**: Implemented official `google-genai` client integration with typed result structures.
+- [x] **Docker Containerization for Hugging Face Spaces**: Created non-root (UID 1000) Dockerfile adhering to port 7860 binding standards with automated Hub artifact download scripts.
+
+### Next Roadmap (Phase 3 UI & Optimization):
+- [ ] **Streamlit / Web UI**: Modern legal search, citation inspection, and court jurisdiction filtering dashboard.
+- [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments.

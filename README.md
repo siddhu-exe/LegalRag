@@ -26,36 +26,45 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
 ## System Architecture
 
 ```text
-               User Query
-                   │
-        ┌──────────┴──────────┐
-        ▼                     ▼
-   BM25 Lexical         Dense Vector
- (BM25Okapi Index)   (BAAI/bge-base-en-v1.5)
-   [Top-50 Pool]        [Top-50 Pool]
-        │                     │
-        └──────────┬──────────┘
-                   ▼
-         Reciprocal Rank Fusion
-       Score = 1/(60+R_bm25) + 1/(60+R_dense)
-                   │
-                   ▼
-           Top-50 Candidates
-                   │
-                   ▼
-        Cross-Encoder Reranker
-       (ms-marco-MiniLM-L-6-v2)
-                   │
-                   ▼
-           Top-5 RAG Context
-                   │
-                   ▼
-         LLM Generation Layer
-      (OmniRoute Router @ temp=0)
-                   │
-                   ▼
-         Grounded Legal Answer
-      with Verifiable Chunk Citations
+                                User HTTP Request
+                          POST /query {"question": "..."}
+                                       │
+                                       ▼
+                         FastAPI Application Factory
+                      (Pydantic v2 Request Validation)
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    ▼                                     ▼
+          BM25 Lexical Retrieval               Dense Vector Retrieval
+         (BM25Okapi Index, top-50)           (BAAI/bge-base-en-v1.5, top-50)
+                    │                                     │
+                    └──────────────────┬──────────────────┘
+                                       ▼
+                             Reciprocal Rank Fusion
+                       RRF Score = ∑ 1 / (60 + Rank_i)
+                                  (top-50)
+                                       │
+                                       ▼
+                            Cross-Encoder Reranker
+                         (ms-marco-MiniLM-L-6-v2)
+                                  (top-5)
+                                       │
+                                       ▼
+                        Strict RAG Prompt Builder &
+                        LLM Generation Client Layer
+                       (Google Gemini 3.8 Flash @ T=0)
+                       [Shielded Exception Trapping]
+                                       │
+                                       ▼
+                       Citation Extractor & Grounding Filter
+                       (Verifies citations against context)
+                                       │
+                                       ▼
+                                JSON Response
+                       - Grounded Answer & Verifiable Citations
+                       - Retrieved Top Chunk IDs
+                       - Subsystem Latencies (retrieve/rerank/gen/total ms)
+                       - Status ('ok' / 'generation_error' / 'retrieval_error')
 ```
 
 ---
@@ -80,6 +89,9 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
 | **@10** | 0.5775 | 0.3340 | 0.5614 | 0.5594 |
 | **@25** | 0.6076 | 0.4125 | 0.6177 | 0.6177 |
 | **@50** | 0.6398 | 0.4467 | **0.6579** | **0.6579** |
+
+> **Critical Retrieval Engineering Finding (Reranker Domain-Adaptation Trade-off)**:
+> Cross-encoder reranking achieves the highest top-1 precision among hybrid methods (+3.42pp over Hybrid-RRF, 0.3219 → 0.3561), placing relevant precedent in the immediate primary attention window. However, it exhibits a slight recall decrease at Recall@5 (0.5111 → 0.4869) and Recall@10 (0.5614 → 0.5594) compared to Hybrid-RRF alone. The root cause is domain divergence: `ms-marco-MiniLM-L-6-v2` is pre-trained on generic MS-MARCO search queries rather than Indian statutory and judicial phrasing. In a production legal pipeline, top-5 context captures sufficient grounding while retaining high top-1 relevance.
 
 ---
 
@@ -136,18 +148,33 @@ LegalRAG/
 ├── README.md                           # Project presentation and benchmark summary
 ├── LLMS.md                             # Token-dense full-context summary for AI models
 ├── CLAUDE.md                           # Developer instructions and coding standards
+├── QWEN.md                             # Architecture and system documentation
 ├── pyproject.toml                      # Standard Python packaging and tool configuration
 ├── requirements.txt                    # Pinned runtime dependencies
 ├── requirements-dev.txt                # Development & test tooling
+├── Dockerfile                          # Production multi-stage Docker container (HF Spaces UID 1000)
+├── .dockerignore                       # Container build exclusion rules
 ├── .gitignore                          # Data, virtualenv, and checkpoint exclusion rules
 ├── src/                                # Core modular Python package
 │   └── legalrag/
+│       ├── api/                        # FastAPI service, configuration, schemas, DI
+│       │   ├── config.py               # Pydantic v2 Settings with secret masking & port fallback
+│       │   ├── dependencies.py         # Singleton DI provider (local_stub vs production)
+│       │   ├── main.py                 # Application factory & metadata routes
+│       │   ├── routes.py               # /health and /query with error shielding & latency breakdown
+│       │   └── schemas.py              # Pydantic validation request/response schemas
 │       ├── preprocessing/              # Text cleaner & locked LegalChunker
 │       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/                 # RAG prompt templates & greedy generation client
+│       ├── generation/                 # RAG prompt templates & Google GenAI (Gemini 3.8) client
 │       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
 ├── tests/                              # Unit test suite (unittest / pytest compatible)
+│   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
+│   ├── test_preprocessing.py           # Cleaner and chunker tests
+│   ├── test_retrieval.py               # BM25 and fusion tests
+│   ├── test_generation.py              # Prompt builder and citation extractor tests
+│   └── test_evaluation.py              # Evidence matching and metrics tests
 ├── scripts/                            # Standalone collection, profiling, and helper scripts
+│   ├── download_artifacts.py           # HF Hub artifact downloader for production deployment
 │   ├── download_subset.py              # First-pass 5k sample collector
 │   ├── collect_corpus.py               # Balanced 20k collector with exact dedup
 │   ├── profile_data.py                 # Data profiling and length distribution utility
@@ -166,7 +193,7 @@ LegalRAG/
 
 ---
 
-## Quickstart
+## Quickstart & Serving
 
 ### 1. Environment Setup
 ```bash
@@ -179,14 +206,54 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Running Unit Tests
+### 2. Running the FastAPI Backend
+
+LegalRAG features dual runtime modes for zero-overhead local development vs. full production scale:
+
+#### Mode A: Local Development (`local_stub` mode)
+Runs instantly on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS indices:
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests
-# or with pytest
-pytest tests/
+# Default mode: local_stub
+export ENVIRONMENT=local_stub
+export API_PORT=7860
+
+# Start Uvicorn ASGI server
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
+```
+- Interactive Swagger UI: `http://localhost:7860/docs`
+- Health Probe: `http://localhost:7860/health`
+
+#### Mode B: Production Serving (`production` mode)
+Executes the full 538k-chunk retrieval cascade with Google Gemini 3.8 Flash generation:
+```bash
+# 1. Download frozen runtime artifacts from Hugging Face Hub
+python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+
+# 2. Configure production environment
+export ENVIRONMENT=production
+export GEMINI_API_KEY="your-gemini-api-key"
+export API_PORT=7860
+
+# 3. Start production server
+uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 
-### 3. Inspecting Data & Checkpoints
+#### Mode C: Docker Container (Hugging Face Docker Spaces)
+Complies with Hugging Face Spaces specification (non-root UID 1000, exposed port 7860):
+```bash
+docker build -t legalrag-api .
+docker run -p 7860:7860 -e ENVIRONMENT=production -e GEMINI_API_KEY="your-key" legalrag-api
+```
+
+### 3. Running Tests
+```bash
+# Run all unit and integration tests (uses local stub pipeline)
+python -m unittest discover -s tests -v
+# Or with pytest
+pytest tests/ -v
+```
+
+### 4. Inspecting Data & Checkpoints
 ```bash
 # Profile existing corpus Parquet files
 python scripts/profile_data.py
@@ -195,7 +262,7 @@ python scripts/profile_data.py
 python scripts/analyze_courts.py
 ```
 
-### 3. Running the Pipeline
+### 5. Running the Pipeline
 Open `Notebooks/legalrag-100k-final.ipynb` in a Jupyter / Kaggle environment (with 2 × Tesla T4 GPUs) to execute the end-to-end ingestion, indexing, retrieval benchmarking, and judge evaluation. See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) for step-by-step guidance.
 
 ---
@@ -213,13 +280,16 @@ For comprehensive deep dives into each subsystem, refer to the documentation sui
 
 ## Roadmap
 
-- [x] 100k High Court Corpus Ingestion & Sanitization
-- [x] 538k Recursive Chunk Indexing (BM25 + FAISS Dense)
-- [x] 4-Tier Retrieval Benchmarking (BM25, BGE, Hybrid RRF, Cross-Encoder)
-- [x] 497-Question Evidence-Grounded Benchmark & Multi-Criteria LLM Judge
-- [ ] **Phase 2 - FastAPI Backend**: Async REST API exposing `/search`, `/retrieve`, and `/generate` streaming endpoints.
-- [ ] **Phase 2 - React Web Interface**: Legal search interface with interactive citation verification, court filtering, and chunk highlight graphs.
-- [ ] **Phase 2 - Quantized Vector Index**: Sub-50ms vector search using FAISS IVFPQ / HNSW quantization.
+- [x] **100k High Court Corpus Ingestion & Sanitization** (538k chunks across 24 High Courts)
+- [x] **538k Recursive Chunk Indexing** (BM25Okapi + FAISS IndexFlatIP dense vector index)
+- [x] **4-Tier Retrieval Benchmarking** (BM25, BGE, Hybrid RRF, Cross-Encoder on 497 gold questions)
+- [x] **497-Question Evidence-Grounded Benchmark & Multi-Criteria LLM Judge**
+- [x] **FastAPI Backend Service (`src/legalrag/api/`)**: Dual-mode (`local_stub` / `production`), singleton DI, input validation, and latency breakdown
+- [x] **Production Exception Shielding & LLMOps**: Sanitized error states, rate limit handling, and hallucinated citation filtering
+- [x] **Google Gemini 3.8 Flash Generation Integration** (`gemini-3.8-flash` via official `google-genai` SDK)
+- [x] **Docker Packaging for Hugging Face Spaces** (Port 7860, UID 1000 non-root user)
+- [ ] **Streamlit / Web UI**: Query interface with interactive citation verification, court filtering, and chunk highlight graphs
+- [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments
 
 ---
 

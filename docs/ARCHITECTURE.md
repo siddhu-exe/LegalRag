@@ -144,12 +144,73 @@ The system prompt strictly instructs the generation model to:
 - Acknowledge when the context is insufficient rather than generating unsupported assertions.
 
 ### 5. LLM Generation Layer
-- **Interface**: Google Gemini API via official `google-genai` SDK.
-- **Model**: `gemini-3.8-flash` (or configured via `GENERATION_MODEL_NAME`).
+- **Interface**: Google Gemini API via official `google-genai` SDK (`LegalGenerationClient`).
+- **Model**: `gemini-3.8-flash` (configurable via `GENERATION_MODEL_NAME`).
 - **Generation Parameters**: `temperature=0.0` (greedy decoding for reproducibility and factual consistency), `max_tokens=1024`.
 - **Error Shielding**: All upstream API errors (auth, quota/rate-limits, network timeouts, invalid requests) are trapped and isolated into structured `GenerationResult` objects and explicit `status="generation_error"` responses, preventing raw error text from leaking into generated answer bodies.
 
-### 6. Evidence-Grounded Benchmark & Judge Subsystem
+### 6. FastAPI Backend Service Architecture
+The LegalRAG service is built with FastAPI and Pydantic v2, architected around singleton dependency injection and dual runtime modes:
+
+```text
+                                HTTP Client Request
+                                         │
+                                         ▼
+                            FastAPI Application Router
+                         [Pydantic v2 Input Validation]
+                                         │
+                                         ▼
+                             Dependency Injection Layer
+                                 (get_pipeline())
+                                         │
+                       ┌─────────────────┴─────────────────┐
+                       ▼                                   ▼
+              `local_stub` Pipeline               `production` Pipeline
+            - In-memory mock retrievers         - BM25Okapi disk index (~579 MB)
+            - Static mock reranker              - FAISS IndexFlatIP (~1.65 GB)
+            - Deterministic mock LLM            - BGE-base SentenceTransformer
+            - Zero memory / GPU overhead        - ms-marco CrossEncoder
+                                                - Google Gemini 3.8 Flash SDK
+                                         │
+                                         ▼
+                                 Execution Cascade
+                    1. Hybrid Retrieval & RRF Fusion (Top-50)
+                    2. Neural Cross-Encoder Reranking (Top-5)
+                    3. Context Prompt Construction
+                    4. Grounded Generation (Gemini 3.8 Flash)
+                    5. Citation Verification & Filtering
+                    6. High-Resolution Latency Tracking
+                                         │
+                                         ▼
+                              Structured JSON Response
+```
+
+#### A. Dual Runtime Environments
+- **`local_stub` (Default)**: Lightweight deterministic mock pipeline tailored for resource-constrained development laptops (< 100 MB RAM). Runs full API validation without loading multi-gigabyte models or FAISS index files.
+- **`production`**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`) and connects to Google Gemini via `GEMINI_API_KEY`.
+
+#### B. API Endpoints
+- **`GET /health`**: Health probe returning operational status and active runtime environment (`HealthResponse`).
+- **`GET /`**: Service root returning metadata, version, environment, and Swagger documentation link.
+- **`POST /query`**: End-to-end multi-stage legal retrieval and grounded answer generation (`QueryRequest` -> `QueryResponse`).
+
+#### C. Request & Response Schemas
+- **`QueryRequest`**: Requires `question` (3 to 4,000 characters, whitespace stripped).
+- **`QueryResponse`**: Returns `answer`, `citations` list, `retrieved_chunk_ids`, granular latency measurements (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`), and execution `status` (`ok`, `generation_error`, `retrieval_error`).
+- **`Citation`**: Metadata including `chunk_id`, `cnr`, `court_code`, `decision_date`, and `title`.
+
+#### D. Production Exception Shielding & LLMOps
+- **Sanitized Failures**: Upstream retrieval or generation errors (e.g. rate limits, network timeouts, index faults) are caught and logged server-side via `logger.exception()`.
+- **Response Privacy**: API consumers receive safe, standardized messages (`"An error occurred while generating the legal answer. Please try again later."`) with explicit `status="generation_error"` or `status="retrieval_error"`, preventing secret or stack trace leakage.
+- **Citation Hallucination Filter**: Regex-extracted `[Chunk ID: ...]` citations are cross-referenced against `top_chunk_ids`. Hallucinated IDs not present in retrieved context are stripped from the response citations list.
+
+### 7. Containerization & Deployment Specification
+- **Base Image**: `python:3.10-slim` with system build utilities (`build-essential`).
+- **User Permissions**: Adheres to Hugging Face Spaces requirements by creating and running as non-root user `user` with UID `1000`.
+- **Port Binding**: Default port `7860` configured via `api_port` with fallback aliases (`PORT`, `API_PORT`).
+- **Healthcheck Probe**: `curl -f http://localhost:7860/health || exit 1`.
+
+### 8. Evidence-Grounded Benchmark & Judge Subsystem
 - **Benchmark Construction**: 500 candidate questions generated across 5 question types (Reasoning, Outcome, Fact, Legal Provision, Multi-Hop).
 - **Evidence Verification (`find_gold_chunks`)**: Validates that candidate supporting text is anchored in corpus chunks via exact/sliding-window matching. Filtered 3 ungrounded candidates, yielding **497 validated gold questions**.
 - **Automated Judge**: Multi-criteria evaluation judging:
