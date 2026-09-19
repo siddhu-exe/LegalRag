@@ -130,7 +130,7 @@ class TestAPIEndpoints(unittest.TestCase):
 
         data = response.json()
         self.assertEqual(data["status"], "generation_error")
-        self.assertIn("Generation failed", data["answer"])
+        self.assertEqual(data["answer"], "An error occurred while generating the legal answer. Please try again later.")
         self.assertEqual(data["citations"], [])
 
         self.app.dependency_overrides.clear()
@@ -159,9 +159,62 @@ class TestAPIEndpoints(unittest.TestCase):
 
         data = response.json()
         self.assertEqual(data["status"], "retrieval_error")
-        self.assertIn("Retrieval failed", data["answer"])
+        self.assertEqual(data["answer"], "An error occurred during document retrieval. Please try again later.")
 
         self.app.dependency_overrides.clear()
+
+    def test_citation_filtering_hallucinated_ids(self):
+        """
+        Tests that cited chunk IDs not present in retrieved context are filtered out.
+        """
+        mock_generator = MagicMock()
+        mock_generator.generate.return_value = GenerationResult(
+            text="Holding citing valid [Chunk ID: stub_chunk_0] and fake [Chunk ID: chunk_fake_999].",
+            status="success",
+            model_name="stub-model",
+            prompt_tokens=100,
+            completion_tokens=20,
+            total_tokens=120,
+            finish_reason="stop",
+        )
+
+        stub_chunks = create_stub_chunks()
+        custom_pipeline = PipelineComponents(
+            bm25=StubBM25Retriever(chunk_ids=stub_chunks["chunk_id"].tolist()),
+            dense=StubDenseRetriever(chunk_ids=stub_chunks["chunk_id"].tolist()),
+            reranker=StubCrossEncoderReranker(),
+            chunks=stub_chunks,
+            generator=mock_generator,
+            environment="local_stub",
+        )
+
+        self.app.dependency_overrides[get_pipeline] = lambda: custom_pipeline
+
+        response = self.client.post("/query", json={"question": "Test hallucinated citation?"})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+
+        cited_ids = [c["chunk_id"] for c in data["citations"]]
+        self.assertIn("stub_chunk_0", cited_ids)
+        self.assertNotIn("chunk_fake_999", cited_ids)
+
+        self.app.dependency_overrides.clear()
+
+    def test_settings_production_validation(self):
+        """
+        Tests that production environment requires GEMINI_API_KEY.
+        """
+        with self.assertRaises(ValueError):
+            Settings(environment="production", gemini_api_key=None)
+
+        # Setting the key should succeed
+        valid_settings = Settings(
+            environment="production",
+            gemini_api_key="AIzaSyDummyKeyForTestingOnly",
+        )
+        self.assertEqual(valid_settings.environment, "production")
+        self.assertTrue(valid_settings.is_production)
+        self.assertFalse(valid_settings.is_local_stub)
 
 
 if __name__ == "__main__":

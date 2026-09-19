@@ -79,7 +79,7 @@ def query_endpoint(
         total_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
         logger.exception("Retrieval stage failure: %s", str(exc))
         return QueryResponse(
-            answer=f"Retrieval failed: {str(exc)}",
+            answer="An error occurred during document retrieval. Please try again later.",
             citations=[],
             retrieved_chunk_ids=[],
             retrieve_ms=retrieve_ms,
@@ -125,7 +125,7 @@ def query_endpoint(
         total_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
         logger.exception("Reranking stage failure: %s", str(exc))
         return QueryResponse(
-            answer=f"Reranking failed: {str(exc)}",
+            answer="An error occurred during candidate reranking. Please try again later.",
             citations=[],
             retrieved_chunk_ids=[],
             retrieve_ms=retrieve_ms,
@@ -172,7 +172,7 @@ def query_endpoint(
             error_msg = getattr(gen_result, "error_message", None) or "LLM generation failed."
             logger.error("Generation failed: %s", error_msg)
             return QueryResponse(
-                answer=f"Generation failed: {error_msg}",
+                answer="An error occurred while generating the legal answer. Please try again later.",
                 citations=[],
                 retrieved_chunk_ids=top_chunk_ids,
                 retrieve_ms=retrieve_ms,
@@ -185,9 +185,14 @@ def query_endpoint(
         answer_text = gen_result.text
         cited_cids = extract_citations(answer_text)
 
-        # Build citation metadata objects
+        # Build citation metadata objects, strictly grounded to context chunks
         citations: List[Citation] = []
         for cid in cited_cids:
+            if cid not in top_chunk_ids:
+                # Shield against hallucinated citation IDs not in context
+                logger.warning("Generation cited chunk_id '%s' not present in retrieved context.", cid)
+                continue
+
             meta = chunk_dict.get(cid)
             if meta is None and not pipeline.chunks.empty and "chunk_id" in pipeline.chunks.columns:
                 match = pipeline.chunks[pipeline.chunks["chunk_id"] == cid]
@@ -224,7 +229,7 @@ def query_endpoint(
         total_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
         logger.exception("Generation stage failure: %s", str(exc))
         return QueryResponse(
-            answer=f"Generation failed: {str(exc)}",
+            answer="An error occurred while generating the legal answer. Please try again later.",
             citations=[],
             retrieved_chunk_ids=top_chunk_ids,
             retrieve_ms=retrieve_ms,

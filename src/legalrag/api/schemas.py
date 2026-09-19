@@ -13,6 +13,8 @@ class QueryRequest(BaseModel):
 
     question: str = Field(
         ...,
+        min_length=3,
+        max_length=4000,
         description="Legal inquiry or question regarding Indian High Court judgments.",
         examples=["What are the conditions for granting anticipatory bail under Section 438 CrPC?"],
     )

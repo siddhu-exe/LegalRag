@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     environment: Literal["local_stub", "production"] = "local_stub"
 
     # Artifact directory and Hub storage location
-    artifact_dir: Path = Path("artifacts")
+    artifact_dir: Path = Field(
+        default=Path("artifacts"),
+        validation_alias=AliasChoices("artifact_dir", "ARTIFACT_DIR"),
+        description="Local directory containing runtime retrieval artifacts.",
+    )
     hf_repo_id: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("hf_repo_id", "HF_REPO_ID", "HF_HUB_REPO"),
@@ -37,6 +41,7 @@ class Settings(BaseSettings):
     )
     hf_token: Optional[str] = Field(
         default=None,
+        repr=False,
         validation_alias=AliasChoices(
             "hf_token", "HF_TOKEN", "HUGGINGFACE_HUB_TOKEN", "HUGGING_FACE_HUB_TOKEN"
         ),
@@ -44,20 +49,41 @@ class Settings(BaseSettings):
     )
 
     # Model identifiers (locked architecture defaults + Gemini generation)
-    embedding_model_name: str = "BAAI/bge-base-en-v1.5"
-    reranker_model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    generation_model_name: str = "gemini-3.8-flash"
+    embedding_model_name: str = Field(
+        default="BAAI/bge-base-en-v1.5",
+        validation_alias=AliasChoices("embedding_model_name", "EMBEDDING_MODEL_NAME"),
+        description="SentenceTransformer embedding model name.",
+    )
+    reranker_model_name: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        validation_alias=AliasChoices("reranker_model_name", "RERANKER_MODEL_NAME"),
+        description="CrossEncoder reranker model name.",
+    )
+    generation_model_name: str = Field(
+        default="gemini-3.8-flash",
+        validation_alias=AliasChoices("generation_model_name", "GENERATION_MODEL_NAME"),
+        description="Google Gemini generation model identifier.",
+    )
 
     # Google Gemini API configuration (externalized secrets)
     gemini_api_key: Optional[str] = Field(
         default=None,
+        repr=False,
         validation_alias=AliasChoices("gemini_api_key", "GEMINI_API_KEY"),
         description="Google Gemini API key for grounded generation.",
     )
 
-    # API Server Network Binding
-    api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    # API Server Network Binding (supports HF Space PORT or API_PORT)
+    api_host: str = Field(
+        default="0.0.0.0",
+        validation_alias=AliasChoices("api_host", "API_HOST"),
+        description="Network interface binding host.",
+    )
+    api_port: int = Field(
+        default=7860,
+        validation_alias=AliasChoices("api_port", "API_PORT", "PORT"),
+        description="Port for the API service (defaults to standard 7860).",
+    )
 
     @property
     def bm25_path(self) -> Path:
