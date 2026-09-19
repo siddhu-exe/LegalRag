@@ -27,17 +27,17 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
 - [x] Refactored into `src/legalrag/` package: preprocessing/, retrieval/,
       generation/, evaluation/ — with pyproject.toml, unit tests, atomic
       conventional commits
-- [x] Fix OmniRoute error-leak bug: Migrated generation to official Google
-      GenAI SDK (`google-genai`, model `gemini-3.8-flash`) with typed
-      `GenerationResult` and strict exception shielding to prevent raw API error
-      strings from leaking into answer fields or judge evaluations
+- [x] Fix OmniRoute error-leak bug: Migrated generation to official Groq SDK
+      (`groq`, model `llama-3.3-70b-versatile`) with typed `GenerationResult` and
+      strict exception shielding to prevent raw API error strings from leaking into
+      answer fields or judge evaluations
 - [x] Add per-stage latency logging: `retrieve_ms`, `rerank_ms`, `generate_ms`,
       and `total_ms` captured monotonically via `time.perf_counter()`
 - [x] Build FastAPI backend (`src/legalrag/api/`): `/health` and `/query`
       endpoints wrapping retrieval, reranking, and generation with dual-mode
       dependency injection (`local_stub` vs `production`)
 - [x] Deploy preparation: Multi-stage `Dockerfile` (port 7860, non-root user
-      UID 1000) and `scripts/download_artifacts.py` for Hugging Face Spaces / Hub
+      UID 1000) and `scripts/download_artifacts.py` for Azure Container Apps / HF Hub
 - [ ] Minimal frontend (Streamlit is fine) — query box, answer, cited chunks
       with source metadata, latency shown
 - [x] README rewritten with retrieval/generation eval benchmarks, API quickstart,
@@ -61,8 +61,8 @@ if something looks suboptimal, flag it and ask before changing.
   Dense (BAAI/bge-base-en-v1.5, 768-dim, FAISS IndexFlatIP) top-50 → RRF
   fusion (k=60) → top-50 → cross-encoder rerank
   (cross-encoder/ms-marco-MiniLM-L-6-v2) → top-5 → LLM context
-- **Generation**: Google Gemini 3.8 Flash (`gemini-3.8-flash`) via official
-  `google-genai` SDK, temperature=0, max_tokens=1024, strict exception shielding
+- **Generation**: Groq (`llama-3.3-70b-versatile`) via official `groq` SDK,
+  temperature=0, max_tokens=1024, strict exception shielding
 - **Frozen artifacts** (do not regenerate unless the artifact is provably
   corrupted): `legal_judgments_clean.parquet`, `legal_chunks.parquet`,
   `bm25.pkl`, `dense.index` + embedding shards, `gold_eval.json` (497
@@ -146,7 +146,7 @@ src/legalrag/
     reranker.py   # Cross-encoder reranker
   generation/
     prompts.py    # locked RAG context formatting + system prompt
-    client.py     # Google GenAI (gemini-3.8-flash) typed client
+    client.py     # Groq (llama-3.3-70b-versatile) typed client
   evaluation/
     grounding.py  # find_gold_chunks evidence matcher
     metrics.py    # calculate_recall_at_k, failure taxonomy, aggregation

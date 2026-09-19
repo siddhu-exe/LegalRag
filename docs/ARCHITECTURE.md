@@ -64,7 +64,7 @@ LegalRAG is a specialized legal information retrieval and question-answering arc
 │   {passage_text}                                                            │
 │                                      │                                      │
 │                                      ▼                                      │
-│            LLM Generation Layer (Google Gemini - gemini-3.8-flash)          │
+│            LLM Generation Layer (Groq - llama-3.3-70b-versatile)                    │
 │            Grounding Instructions, Strict Chunk Attribution, temp=0         │
 │            Strict Error Shielding (prevents API error leak into answers)    │
 │                                      │                                      │
@@ -144,8 +144,8 @@ The system prompt strictly instructs the generation model to:
 - Acknowledge when the context is insufficient rather than generating unsupported assertions.
 
 ### 5. LLM Generation Layer
-- **Interface**: Google Gemini API via official `google-genai` SDK (`LegalGenerationClient`).
-- **Model**: `gemini-3.8-flash` (configurable via `GENERATION_MODEL_NAME`).
+- **Interface**: Groq Cloud API via official `groq` SDK (`LegalGenerationClient`).
+- **Model**: `llama-3.3-70b-versatile` (configurable via `GROQ_MODEL_NAME`).
 - **Generation Parameters**: `temperature=0.0` (greedy decoding for reproducibility and factual consistency), `max_tokens=1024`.
 - **Error Shielding**: All upstream API errors (auth, quota/rate-limits, network timeouts, invalid requests) are trapped and isolated into structured `GenerationResult` objects and explicit `status="generation_error"` responses, preventing raw error text from leaking into generated answer bodies.
 
@@ -170,14 +170,14 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
             - Static mock reranker              - FAISS IndexFlatIP (~1.65 GB)
             - Deterministic mock LLM            - BGE-base SentenceTransformer
             - Zero memory / GPU overhead        - ms-marco CrossEncoder
-                                                - Google Gemini 3.8 Flash SDK
+                                                - Groq LLaMA 3.3 70B SDK
                                          │
                                          ▼
                                  Execution Cascade
                     1. Hybrid Retrieval & RRF Fusion (Top-50)
                     2. Neural Cross-Encoder Reranking (Top-5)
                     3. Context Prompt Construction
-                    4. Grounded Generation (Gemini 3.8 Flash)
+                    4. Grounded Generation (Groq LLaMA 3.3 70B)
                     5. Citation Verification & Filtering
                     6. High-Resolution Latency Tracking
                                          │
@@ -187,7 +187,7 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
 
 #### A. Dual Runtime Environments
 - **`local_stub` (Default)**: Lightweight deterministic mock pipeline tailored for resource-constrained development laptops (< 100 MB RAM). Runs full API validation without loading multi-gigabyte models or FAISS index files.
-- **`production`**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`) and connects to Google Gemini via `GEMINI_API_KEY`.
+- **`production`**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`) and connects to Groq API via `GROQ_API_KEY`.
 
 #### B. API Endpoints
 - **`GET /health`**: Health probe returning operational status and active runtime environment (`HealthResponse`).

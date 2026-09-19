@@ -252,8 +252,8 @@ The research, corpus engineering, retrieval modeling, and RAG evaluation phases 
 - [x] **FastAPI Backend (`src/legalrag/api/`)**: Built dual-mode (`local_stub` / `production`) service exposing `/health` and `/query` endpoints with singleton dependency injection and granular latency attribution (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`).
 - [x] **Production Exception Shielding & LLMOps**: Trapped all generation, rate-limit (429), and network errors to prevent raw exception leakage into answers.
 - [x] **Citation Grounding Defense**: Enforced strict cross-referencing between extracted `[Chunk ID: ...]` citations and retrieved top-5 context chunks.
-- [x] **Google Gemini 3.8 Flash Migration**: Implemented official `google-genai` client integration with typed result structures.
-- [x] **Docker Containerization for Hugging Face Spaces**: Created non-root (UID 1000) Dockerfile adhering to port 7860 binding standards with automated Hub artifact download scripts.
+- [x] **Groq Generation Client Migration**: Implemented official `groq` SDK client integration with typed `GenerationResult` structures, token usage tracking, and graceful error shielding.
+- [x] **Docker Containerization for Cloud Deployment**: Created non-root (UID 1000) Dockerfile adhering to port 7860 binding standards with automated Hub artifact download scripts for Azure Container Apps and Hugging Face Spaces.
 
 ### Next Roadmap (Phase 3 UI & Optimization):
 - [ ] **Streamlit / Web UI**: Modern legal search, citation inspection, and court jurisdiction filtering dashboard.

@@ -52,7 +52,7 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
                                        ▼
                         Strict RAG Prompt Builder &
                         LLM Generation Client Layer
-                       (Google Gemini 3.8 Flash @ T=0)
+                       (Groq llama-3.3-70b-versatile @ T=0)
                        [Shielded Exception Trapping]
                                        │
                                        ▼
@@ -165,7 +165,7 @@ LegalRAG/
 │       │   └── schemas.py              # Pydantic validation request/response schemas
 │       ├── preprocessing/              # Text cleaner & locked LegalChunker
 │       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/                 # RAG prompt templates & Google GenAI (Gemini 3.8) client
+│       ├── generation/                 # RAG prompt templates & Groq (llama-3.3-70b) client
 │       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
 ├── tests/                              # Unit test suite (unittest / pytest compatible)
 │   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
@@ -224,25 +224,25 @@ uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 - Health Probe: `http://localhost:7860/health`
 
 #### Mode B: Production Serving (`production` mode)
-Executes the full 538k-chunk retrieval cascade with Google Gemini 3.8 Flash generation:
+Executes the full 538k-chunk retrieval cascade with Groq LLaMA 3.3 70B generation:
 ```bash
 # 1. Download frozen runtime artifacts from Hugging Face Hub
 python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
 
 # 2. Configure production environment
 export ENVIRONMENT=production
-export GEMINI_API_KEY="your-gemini-api-key"
+export GROQ_API_KEY="your-groq-api-key"
 export API_PORT=7860
 
 # 3. Start production server
 uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 
-#### Mode C: Docker Container (Hugging Face Docker Spaces)
-Complies with Hugging Face Spaces specification (non-root UID 1000, exposed port 7860):
+#### Mode C: Docker Container (Azure Container Apps / Hugging Face Spaces)
+Complies with standard container runtime specification (non-root UID 1000, exposed port 7860):
 ```bash
 docker build -t legalrag-api .
-docker run -p 7860:7860 -e ENVIRONMENT=production -e GEMINI_API_KEY="your-key" legalrag-api
+docker run -p 7860:7860 -e ENVIRONMENT=production -e GROQ_API_KEY="your-key" legalrag-api
 ```
 
 ### 3. Running Tests
@@ -286,7 +286,7 @@ For comprehensive deep dives into each subsystem, refer to the documentation sui
 - [x] **497-Question Evidence-Grounded Benchmark & Multi-Criteria LLM Judge**
 - [x] **FastAPI Backend Service (`src/legalrag/api/`)**: Dual-mode (`local_stub` / `production`), singleton DI, input validation, and latency breakdown
 - [x] **Production Exception Shielding & LLMOps**: Sanitized error states, rate limit handling, and hallucinated citation filtering
-- [x] **Google Gemini 3.8 Flash Generation Integration** (`gemini-3.8-flash` via official `google-genai` SDK)
+- [x] **Groq LLaMA 3.3 70B Generation Integration** (`llama-3.3-70b-versatile` via official `groq` SDK)
 - [x] **Docker Packaging for Hugging Face Spaces** (Port 7860, UID 1000 non-root user)
 - [ ] **Streamlit / Web UI**: Query interface with interactive citation verification, court filtering, and chunk highlight graphs
 - [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments

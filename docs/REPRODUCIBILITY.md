@@ -51,7 +51,7 @@ pip install \
     pandas==2.1.4 \
     pyarrow==14.0.2 \
     langchain==0.1.0 \
-    google-genai>=1.0.0 \
+    groq>=0.9.0 \
     fastapi>=0.109.0 \
     uvicorn[standard]>=0.27.0 \
     pydantic>=2.5.0 \
@@ -269,7 +269,7 @@ python3 -c "import faiss; index = faiss.read_index('dense.index'); assert index.
 
 The LegalRAG service supports dual runtime modes for zero-overhead local development vs. full production scale:
 1. **`local_stub` (Default)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop, < 100 MB RAM).
-2. **`production`**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Google Gemini 3.8 Flash (`gemini-3.8-flash`).
+2. **`production`**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Groq (`llama-3.3-70b-versatile`).
 
 ### A. Local Development (`local_stub` mode)
 No heavy models, disk artifacts, or GPU required:
@@ -291,15 +291,15 @@ python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --targe
 
 # 2. Set environment variables
 export ENVIRONMENT=production
-export GEMINI_API_KEY="your-gemini-api-key"
+export GROQ_API_KEY="your-groq-api-key"
 export API_PORT=7860
 
 # 3. Start production server
 uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 
-### C. Docker Container (Hugging Face Docker Spaces)
-Complies with Hugging Face Spaces specification (runs as non-root user `user` with UID `1000`, exposes port `7860`):
+### C. Docker Container (Azure Container Apps / Hugging Face Spaces)
+Complies with standard container runtime specifications (runs as non-root user `user` with UID `1000`, exposes port `7860`):
 ```bash
 # Build Docker image
 docker build -t legalrag-api .
@@ -307,7 +307,7 @@ docker build -t legalrag-api .
 # Run Docker container
 docker run -p 7860:7860 \
     -e ENVIRONMENT=production \
-    -e GEMINI_API_KEY="your-gemini-api-key" \
+    -e GROQ_API_KEY="your-groq-api-key" \
     legalrag-api
 ```
 

@@ -12,7 +12,7 @@ Production-hardened, hybrid-retrieval RAG (Retrieval-Augmented Generation) syste
   3. **Reciprocal Rank Fusion (RRF)**: $k=60$, combining BM25 and Dense into top-50 candidate pool.
   4. **Neural Cross-Encoder Reranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` selecting top-5 RAG context blocks.
 - **Generation & LLMOps**:
-  - Google Gemini 3.8 Flash (`gemini-3.8-flash`) via official `google-genai` SDK at `temperature=0.0`.
+  - Groq (`llama-3.3-70b-versatile`) via official `groq` SDK at `temperature=0.0`.
   - Strict exception shielding preventing raw API/rate-limit errors from leaking into answer bodies.
   - Regex citation validation (`[Chunk ID: ...]`) cross-referenced strictly against retrieved context chunks.
 - **FastAPI Backend (`src/legalrag/api/`)**:
@@ -45,7 +45,7 @@ LegalRAG/
 │       │   └── schemas.py              # Pydantic validation request/response schemas
 │       ├── preprocessing/              # Text cleaner & locked LegalChunker
 │       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/                 # RAG prompt templates & Google GenAI (Gemini 3.8) client
+│       ├── generation/                 # RAG prompt templates & Groq (llama-3.3-70b) client
 │       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
 ├── tests/                              # Unit test suite (unittest / pytest compatible)
 │   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
@@ -84,12 +84,12 @@ LegalRAG/
      uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
      ```
 2. **`production`**:
-   - Full 538k-chunk pipeline with `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, and Gemini 3.8 Flash.
-   - Run on Hugging Face Spaces or GPU cloud instance:
+   - Full 538k-chunk pipeline with `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, and Groq LLM.
+   - Run on Azure Container Apps, Hugging Face Spaces, or GPU cloud instance:
      ```bash
      python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
      export ENVIRONMENT=production
-     export GEMINI_API_KEY="your-gemini-api-key"
+     export GROQ_API_KEY="your-groq-api-key"
      export API_PORT=7860
      uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
      ```

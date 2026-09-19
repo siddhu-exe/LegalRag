@@ -108,18 +108,18 @@
 - **Application Factory**: `create_app()` in `src/legalrag/api/main.py`.
 - **Runtime Dual-Mode**:
   - `local_stub`: Instant local development on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS index files.
-  - `production`: Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Google Gemini 3.8 Flash.
+  - `production`: Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Groq (llama-3.3-70b-versatile).
 - **REST Endpoints**:
   - `GET /health` -> `HealthResponse(status="ok" | "degraded", environment="local_stub" | "production")`
   - `GET /` -> Service root with API metadata, environment, and `/docs` documentation link.
-  - `POST /query` -> Executes hybrid retrieval, RRF fusion, cross-encoder reranking, prompt formatting, Google Gemini generation, citation verification, and latency breakdown.
+  - `POST /query` -> Executes hybrid retrieval, RRF fusion, cross-encoder reranking, prompt formatting, Groq generation, citation verification, and latency breakdown.
 - **Data Transfer Schemas** (`src/legalrag/api/schemas.py`):
   - `QueryRequest`: `question: str` (min length 3, max length 4000, whitespace-stripped).
   - `QueryResponse`: `answer`, `citations: List[Citation]`, `retrieved_chunk_ids: List[str]`, `retrieve_ms: float`, `rerank_ms: float`, `generate_ms: float`, `total_ms: float`, `status: Literal["ok", "generation_error", "retrieval_error"]`.
   - `Citation`: `chunk_id`, `cnr`, `court_code`, `decision_date`, `title`.
 - **Generation & LLMOps**:
-  - Model: Google Gemini 3.8 Flash (`gemini-3.8-flash`) via official `google-genai` SDK (`LegalGenerationClient`).
-  - Strict Exception Shielding: Traps all `APIError`, `ClientError`, `ServerError`, 429 rate limits, and network errors. Returns sanitized user-facing responses with `status="generation_error"` or `"retrieval_error"` while logging full traces server-side.
+  - Model: Groq (`llama-3.3-70b-versatile`) via official `groq` SDK (`LegalGenerationClient`).
+  - Strict Exception Shielding: Traps all `GroqAuthenticationError`, `GroqRateLimitError`, `GroqBadRequestError`, `GroqInternalServerError`, `GroqAPIConnectionError`, `GroqAPIError`. Returns sanitized user-facing responses with `status="generation_error"` or `"retrieval_error"` while logging full traces server-side.
   - Citation Grounding Defense: Regex-extracted `[Chunk ID: ...]` citations are cross-validated against retrieved `top_chunk_ids`; hallucinated chunk IDs are filtered out before response serialization.
 - **Containerization**:
   - Multi-stage Dockerfile built on `python:3.10-slim`.
@@ -136,8 +136,8 @@
   - 4-tier retrieval benchmarking and 497-question judge evaluation.
   - Checkpointed execution in `Notebooks/legalrag-100k-final.ipynb`.
   - Production FastAPI backend (`src/legalrag/api/`) with dual runtime modes, input validation, and high-resolution latency tracking.
-  - Google Gemini 3.8 Flash generation client with strict error shielding.
-  - Hugging Face Spaces Docker containerization and Hub artifact download scripts.
+  - Groq (llama-3.3-70b-versatile) generation client with strict error shielding.
+  - Multi-stage Docker containerization and Hub artifact download scripts for Azure Container Apps / Hugging Face Spaces.
 - **Planned Application Layer (Phase 2)**:
   - **Streamlit / Web UI**: Interactive legal query interface with citation graphs and court jurisdiction filters.
   - **Quantized Vector Index**: FAISS IVFPQ / HNSW serving for sub-50ms query latency.
