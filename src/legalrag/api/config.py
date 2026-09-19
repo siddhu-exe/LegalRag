@@ -3,7 +3,7 @@ Configuration management for the LegalRAG FastAPI backend service.
 
 Supports two runtime environments:
 - 'local_stub': Lightweight local development mode without loading heavy models or FAISS index.
-- 'production': Full pipeline execution with real retrieval indexes and Google Gemini LLM generation.
+- 'production': Full pipeline execution with real retrieval indexes and Groq LLM generation.
 """
 
 from functools import lru_cache
@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         description="Hugging Face Hub access token for private repositories or rate limits.",
     )
 
-    # Model identifiers (locked architecture defaults + Gemini generation)
+    # Model identifiers (locked architecture defaults + Groq generation)
     embedding_model_name: str = Field(
         default="BAAI/bge-base-en-v1.5",
         validation_alias=AliasChoices("embedding_model_name", "EMBEDDING_MODEL_NAME"),
@@ -59,21 +59,23 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("reranker_model_name", "RERANKER_MODEL_NAME"),
         description="CrossEncoder reranker model name.",
     )
-    generation_model_name: str = Field(
-        default="gemini-3.8-flash",
-        validation_alias=AliasChoices("generation_model_name", "GENERATION_MODEL_NAME"),
-        description="Google Gemini generation model identifier.",
+    groq_model_name: str = Field(
+        default="llama-3.3-70b-versatile",
+        validation_alias=AliasChoices(
+            "groq_model_name", "GROQ_MODEL_NAME", "generation_model_name", "GENERATION_MODEL_NAME"
+        ),
+        description="Groq LLM model identifier for grounded generation.",
     )
 
-    # Google Gemini API configuration (externalized secrets)
-    gemini_api_key: Optional[str] = Field(
+    # Groq API configuration (externalized secrets)
+    groq_api_key: Optional[str] = Field(
         default=None,
         repr=False,
-        validation_alias=AliasChoices("gemini_api_key", "GEMINI_API_KEY"),
-        description="Google Gemini API key for grounded generation.",
+        validation_alias=AliasChoices("groq_api_key", "GROQ_API_KEY"),
+        description="Groq API key for grounded generation.",
     )
 
-    # API Server Network Binding (supports HF Space PORT or API_PORT)
+    # API Server Network Binding (supports Azure/HF PORT or API_PORT)
     api_host: str = Field(
         default="0.0.0.0",
         validation_alias=AliasChoices("api_host", "API_HOST"),
@@ -117,9 +119,9 @@ class Settings(BaseSettings):
         Local stub mode does not require external credentials.
         """
         if self.environment == "production":
-            if not self.gemini_api_key or not self.gemini_api_key.strip():
+            if not self.groq_api_key or not self.groq_api_key.strip():
                 raise ValueError(
-                    "Production environment requires 'GEMINI_API_KEY' to be set."
+                    "Production environment requires 'GROQ_API_KEY' to be set."
                 )
         return self
 

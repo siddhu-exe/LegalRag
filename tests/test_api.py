@@ -202,15 +202,15 @@ class TestAPIEndpoints(unittest.TestCase):
 
     def test_settings_production_validation(self):
         """
-        Tests that production environment requires GEMINI_API_KEY.
+        Tests that production environment requires GROQ_API_KEY.
         """
         with self.assertRaises(ValueError):
-            Settings(environment="production", gemini_api_key=None)
+            Settings(environment="production", groq_api_key=None)
 
         # Setting the key should succeed
         valid_settings = Settings(
             environment="production",
-            gemini_api_key="AIzaSyDummyKeyForTestingOnly",
+            groq_api_key="gsk_DummyKeyForTestingOnly12345",
         )
         self.assertEqual(valid_settings.environment, "production")
         self.assertTrue(valid_settings.is_production)

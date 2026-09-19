@@ -1,7 +1,7 @@
 """
-Google Gemini generation client interface for the LegalRAG generation layer.
+Groq generation client interface for the LegalRAG generation layer.
 
-Implements grounded legal QA generation via the official google-genai SDK
+Implements grounded legal QA generation via the official groq SDK
 with greedy decoding (temperature=0.0) and explicit error shielding.
 """
 
@@ -13,13 +13,25 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 try:
-    from google import genai
-    from google.genai import types
-    from google.genai import errors as genai_errors
+    import groq
+    from groq import Groq
+    from groq import (
+        APIError as GroqAPIError,
+        APIConnectionError as GroqAPIConnectionError,
+        RateLimitError as GroqRateLimitError,
+        AuthenticationError as GroqAuthenticationError,
+        BadRequestError as GroqBadRequestError,
+        InternalServerError as GroqInternalServerError,
+    )
 except ImportError:
-    genai = None  # type: ignore
-    types = None  # type: ignore
-    genai_errors = None  # type: ignore
+    groq = None  # type: ignore
+    Groq = None  # type: ignore
+    GroqAPIError = None  # type: ignore
+    GroqAPIConnectionError = None  # type: ignore
+    GroqRateLimitError = None  # type: ignore
+    GroqAuthenticationError = None  # type: ignore
+    GroqBadRequestError = None  # type: ignore
+    GroqInternalServerError = None  # type: ignore
 
 
 class GenerationError(Exception):
@@ -61,31 +73,31 @@ class GenerationResult:
 
 class LegalGenerationClient:
     """
-    Generation client for executing grounded legal QA against Google Gemini models.
+    Generation client for executing grounded legal QA against Groq models.
     Provides strict error isolation to prevent upstream error strings from leaking into answers.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-3.8-flash",
+        model_name: str = "llama-3.3-70b-versatile",
     ):
-        if genai is None:
+        if Groq is None:
             raise ImportError(
-                "google-genai package is required for LegalGenerationClient. "
-                "Install it via: pip install google-genai"
+                "groq package is required for LegalGenerationClient. "
+                "Install it via: pip install groq"
             )
 
-        resolved_key = api_key or os.getenv("GEMINI_API_KEY")
+        resolved_key = api_key or os.getenv("GROQ_API_KEY")
         if not resolved_key or not resolved_key.strip():
             raise ValueError(
-                "Google Gemini API key is required. Set 'GEMINI_API_KEY' environment variable "
+                "Groq API key is required. Set 'GROQ_API_KEY' environment variable "
                 "or pass 'api_key' to LegalGenerationClient."
             )
 
         self._api_key = resolved_key
         self.model_name = model_name
-        self.client = genai.Client(api_key=self._api_key)
+        self.client = Groq(api_key=self._api_key)
 
     def generate(
         self,
@@ -99,43 +111,44 @@ class LegalGenerationClient:
         Traps all API and connection errors gracefully to prevent error leaks into answers.
         """
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            )
-
-            response = self.client.models.generate_content(
+            response = self.client.chat.completions.create(
                 model=self.model_name,
-                contents=user_prompt,
-                config=config,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
 
-            # Extract generated text
-            content = response.text
+            # Extract generated content
+            content = None
+            finish_reason = None
+            if response.choices and len(response.choices) > 0:
+                choice = response.choices[0]
+                if getattr(choice, "message", None) is not None:
+                    content = choice.message.content
+                finish_reason = getattr(choice, "finish_reason", None)
+
             if content is None or not content.strip():
                 return GenerationResult(
                     text=None,
                     status="empty_response",
-                    error_message="Gemini model returned empty content payload.",
+                    error_message="Groq model returned empty content payload.",
                     error_type="EmptyResponseError",
                     model_name=self.model_name,
                 )
 
-            # Extract token usage and finish reason if available
+            # Extract token usage metadata if available
             prompt_tokens = None
             completion_tokens = None
             total_tokens = None
-            finish_reason = None
 
-            if getattr(response, "usage_metadata", None) is not None:
-                usage = response.usage_metadata
-                prompt_tokens = getattr(usage, "prompt_token_count", None)
-                completion_tokens = getattr(usage, "candidates_token_count", None)
-                total_tokens = getattr(usage, "total_token_count", None)
-
-            if getattr(response, "candidates", None) and len(response.candidates) > 0:
-                finish_reason = str(getattr(response.candidates[0], "finish_reason", "STOP"))
+            if getattr(response, "usage", None) is not None:
+                usage = response.usage
+                prompt_tokens = getattr(usage, "prompt_tokens", None)
+                completion_tokens = getattr(usage, "completion_tokens", None)
+                total_tokens = getattr(usage, "total_tokens", None)
 
             return GenerationResult(
                 text=content,
@@ -144,53 +157,71 @@ class LegalGenerationClient:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
-                finish_reason=finish_reason,
+                finish_reason=str(finish_reason) if finish_reason else None,
             )
 
-        except genai_errors.ClientError as exc:
-            # 4xx HTTP client errors (auth, bad request, rate limit)
-            status_code = getattr(exc, "code", None)
-            err_type = "ClientError"
-            status = "api_error"
-            if status_code == 401 or status_code == 403:
-                status = "auth_error"
-            elif status_code == 429:
-                status = "rate_limited"
-            elif status_code == 400:
-                status = "bad_request"
-
-            logger.error("Gemini API ClientError (%s): %s", status, str(exc))
+        except GroqAuthenticationError as exc:
+            logger.error("Groq API AuthenticationError: %s", str(exc))
             return GenerationResult(
                 text=None,
-                status=status,
-                error_message=f"Gemini API client error: {str(exc)}",
-                error_type=err_type,
+                status="auth_error",
+                error_message="Groq API authentication failed.",
+                error_type="AuthenticationError",
                 model_name=self.model_name,
             )
 
-        except genai_errors.ServerError as exc:
-            # 5xx HTTP server errors
-            logger.error("Gemini API ServerError: %s", str(exc))
+        except GroqRateLimitError as exc:
+            logger.error("Groq API RateLimitError: %s", str(exc))
             return GenerationResult(
                 text=None,
-                status="api_error",
-                error_message=f"Gemini API server error: {str(exc)}",
-                error_type="ServerError",
+                status="rate_limited",
+                error_message="Groq API rate limit exceeded.",
+                error_type="RateLimitError",
                 model_name=self.model_name,
             )
 
-        except genai_errors.APIError as exc:
-            logger.error("Gemini API general APIError: %s", str(exc))
+        except GroqBadRequestError as exc:
+            logger.error("Groq API BadRequestError: %s", str(exc))
+            return GenerationResult(
+                text=None,
+                status="bad_request",
+                error_message=f"Groq API bad request: {str(exc)}",
+                error_type="BadRequestError",
+                model_name=self.model_name,
+            )
+
+        except GroqInternalServerError as exc:
+            logger.error("Groq API ServerError: %s", str(exc))
             return GenerationResult(
                 text=None,
                 status="api_error",
-                error_message=f"Gemini API error: {str(exc)}",
+                error_message=f"Groq API server error: {str(exc)}",
+                error_type="InternalServerError",
+                model_name=self.model_name,
+            )
+
+        except GroqAPIConnectionError as exc:
+            logger.error("Groq API ConnectionError: %s", str(exc))
+            return GenerationResult(
+                text=None,
+                status="api_error",
+                error_message=f"Groq API connection error: {str(exc)}",
+                error_type="APIConnectionError",
+                model_name=self.model_name,
+            )
+
+        except GroqAPIError as exc:
+            logger.error("Groq API general APIError: %s", str(exc))
+            return GenerationResult(
+                text=None,
+                status="api_error",
+                error_message=f"Groq API error: {str(exc)}",
                 error_type="APIError",
                 model_name=self.model_name,
             )
 
         except Exception as exc:
-            logger.error("Unexpected error during Gemini generation: %s", str(exc))
+            logger.error("Unexpected error during Groq generation: %s", str(exc))
             return GenerationResult(
                 text=None,
                 status="api_error",
@@ -226,5 +257,5 @@ class LegalGenerationClient:
         return result.text
 
 
-# Alias for explicit naming
-GeminiGenerationClient = LegalGenerationClient
+# Aliases for explicit naming
+GroqGenerationClient = LegalGenerationClient

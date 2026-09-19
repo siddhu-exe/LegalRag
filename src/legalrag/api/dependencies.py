@@ -96,7 +96,7 @@ class StubCrossEncoderReranker:
 class StubGenerator:
     """Lightweight deterministic LLM generation client stub for local development."""
 
-    def __init__(self, model_name: str = "stub-gemini-3.8-flash"):
+    def __init__(self, model_name: str = "stub-groq-llama-3.3-70b"):
         self.model_name = model_name
 
     def generate(
@@ -288,10 +288,10 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
         model_name=settings.reranker_model_name,
     )
 
-    logger.info("Initializing Gemini generation client (%s)", settings.generation_model_name)
+    logger.info("Initializing Groq generation client (%s)", settings.groq_model_name)
     generator = LegalGenerationClient(
-        api_key=settings.gemini_api_key,
-        model_name=settings.generation_model_name,
+        api_key=settings.groq_api_key,
+        model_name=settings.groq_model_name,
     )
 
     return PipelineComponents(
