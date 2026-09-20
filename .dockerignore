@@ -28,7 +28,7 @@ venv/
 rag/
 
 # Git & Editor
-.git
+.git/
 .gitignore
 .gitattributes
 .idea/

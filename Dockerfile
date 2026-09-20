@@ -23,19 +23,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd -m -u 1000 user
 WORKDIR $HOME/app
 
-# Copy dependency specifications first to leverage Docker layer caching
-COPY --chown=user:user requirements.txt pyproject.toml README.md ./
+# Copy only the dependency specification first so this heavy install layer is
+# cached independently of application source, packaging metadata, and docs.
+COPY --chown=user:user requirements.txt ./
 
 # Install Python dependencies and CPU-optimized FAISS
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt && \
     pip install "faiss-cpu>=1.7.4"
 
-# Copy application source code and scripts
+# Copy packaging metadata, application source code, and scripts
+COPY --chown=user:user pyproject.toml README.md ./
 COPY --chown=user:user src/ ./src/
 COPY --chown=user:user scripts/ ./scripts/
 
-# Install the package itself
+# Install the package itself (dependencies are already installed above)
 RUN pip install --no-deps -e .
 
 # Create artifacts directory with appropriate permissions
