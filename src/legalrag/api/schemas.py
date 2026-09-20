@@ -3,13 +3,19 @@ Pydantic v2 schemas and data transfer models for the LegalRAG FastAPI API.
 """
 
 from typing import List, Optional, Literal, Any
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class QueryRequest(BaseModel):
     """
     Incoming search and question-answering request schema.
+
+    The API contract accepts ONLY ``question``. All runtime/server configuration
+    (environment, artifact paths, model names, provider credentials, host/port) is
+    server-side and any attempt to supply it in the request body is rejected (422).
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     question: str = Field(
         ...,
@@ -90,6 +96,22 @@ class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"] = Field(
         ...,
         description="Overall service operational status.",
+    )
+    environment: str = Field(
+        ...,
+        description="Active runtime environment mode ('local_stub' or 'production').",
+    )
+
+
+class ReadinessResponse(BaseModel):
+    """
+    Readiness probe response model. Only returned with HTTP 200 when inference
+    dependencies are fully initialized and available.
+    """
+
+    status: Literal["ready"] = Field(
+        ...,
+        description="Service readiness state.",
     )
     environment: str = Field(
         ...,

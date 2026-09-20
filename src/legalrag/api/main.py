@@ -1,21 +1,27 @@
 """
 Main FastAPI application entrypoint for the LegalRAG service.
 
-Initializes the FastAPI application, mounts API routes, sets up CORS middleware,
-and manages application lifespan events (logging environment configuration and pipeline warmup).
+Initializes the FastAPI application, mounts API routes, sets up CORS middleware, and
+manages application lifespan events (production artifact provisioning + pipeline warmup).
+
+Production fails closed: if artifact provisioning or pipeline initialization fails, the
+service still starts but reports NOT READY (HTTP 503) and never serves stub responses.
 """
 
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import uvicorn
 
 from legalrag.api.config import get_settings
-from legalrag.api.dependencies import get_pipeline
+from legalrag.api.dependencies import PipelineInitializationError, get_pipeline
+from legalrag.api.provisioning import ArtifactProvisioningError, provision_production_artifacts
 from legalrag.api.routes import router as api_router
+from legalrag.generation.client import GenerationError
 
 # Configure root logger format
 logging.basicConfig(
@@ -29,7 +35,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Application lifespan context manager for startup and shutdown routines.
-    Initializes pipeline singleton and logs environment configuration.
+
+    In production, missing artifacts are provisioned from Hugging Face Hub before the
+    pipeline is initialized. Initialization failures are logged and left uncached as a
+    not-ready state; they must never silently degrade to stub components.
     """
     settings = get_settings()
     logger.info(
@@ -39,20 +48,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     try:
+        if settings.is_production:
+            provision_production_artifacts(settings)
         # Pre-warm/initialize pipeline components
         pipeline = get_pipeline(settings)
         logger.info(
             "LegalRAG pipeline initialized successfully in '%s' mode.",
             pipeline.environment,
         )
-    except Exception as exc:
-        logger.error("Error during pipeline initialization on startup: %s", exc)
-        # We let the server start so health probes or error messages can be served
-        if settings.is_production:
-            logger.warning(
-                "Production startup encountered missing artifacts or invalid keys. "
-                "Verify environment variables and run artifact download script."
-            )
+    except Exception as exc:  # noqa: BLE001 - keep serving so /ready can report 503
+        logger.error(
+            "Pipeline initialization failed on startup (%s). Service will report not ready.",
+            type(exc).__name__,
+        )
 
     yield
 
@@ -82,6 +90,19 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Sanitized error handlers: never leak credentials, paths, or stack traces.
+    @app.exception_handler(PipelineInitializationError)
+    async def _pipeline_not_ready_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": "Service is not ready."})
+
+    @app.exception_handler(ArtifactProvisioningError)
+    async def _provisioning_not_ready_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": "Service is not ready."})
+
+    @app.exception_handler(GenerationError)
+    async def _generation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=502, content={"detail": "Answer generation failed."})
+
     # Mount API routes
     app.include_router(api_router)
 
@@ -95,6 +116,7 @@ def create_app() -> FastAPI:
             "environment": settings.environment,
             "docs_url": "/docs",
             "health_url": "/health",
+            "readiness_url": "/ready",
             "query_url": "/query",
         }
 

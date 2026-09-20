@@ -16,18 +16,23 @@ Strict Guidelines:
 4. If the retrieved passages do not contain sufficient evidence to answer the question, clearly state: "The provided judgment context does not contain sufficient information to answer this inquiry."
 """
 
-CITATION_PATTERN = re.compile(r"\[Chunk ID:\s*([^\]]+)\]", re.IGNORECASE)
+# Matches both bare citations ("[Chunk ID: abc123]") and full context headers
+# ("[Chunk ID: abc123 | Court: ... | Date: ...]") while capturing ONLY the chunk ID.
+CITATION_PATTERN = re.compile(
+    r"\[Chunk ID:\s*([^\]|\s][^\]|]*?)\s*(?:\||\])",
+    re.IGNORECASE,
+)
 
 
 def format_context_block(
     chunk_id: str,
     text: str,
-    court_name: Optional[str] = None,
+    court_code: Optional[str] = None,
     decision_date: Optional[str] = None,
 ) -> str:
     """Formats a single retrieved chunk into an attributed context block."""
-    court_str = court_name if court_name else "Indian High Court"
-    date_str = decision_date if decision_date else "Unspecified Date"
+    court_str = str(court_code) if court_code not in (None, "") else "Unspecified"
+    date_str = decision_date if decision_date else "Unspecified"
 
     return f"[Chunk ID: {chunk_id} | Court: {court_str} | Date: {date_str}]\n{text}"
 
@@ -41,7 +46,7 @@ def build_rag_prompt(
 
     Args:
         question: User inquiry or benchmark question.
-        context_blocks: List of dicts with keys: chunk_id, text, (optional) court_name, decision_date.
+        context_blocks: List of dicts with keys: chunk_id, text, (optional) court_code, decision_date.
 
     Returns:
         Formatted user message string.
@@ -51,7 +56,7 @@ def build_rag_prompt(
         formatted = format_context_block(
             chunk_id=block["chunk_id"],
             text=block["text"],
-            court_name=block.get("court_name"),
+            court_code=block.get("court_code"),
             decision_date=block.get("decision_date"),
         )
         formatted_passages.append(formatted)

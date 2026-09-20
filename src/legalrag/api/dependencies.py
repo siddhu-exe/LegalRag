@@ -8,6 +8,7 @@ across dual runtime environments:
 """
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, List, Literal, Optional, Tuple, Union
 
@@ -20,6 +21,16 @@ from legalrag.retrieval.reranker import CrossEncoderReranker
 from legalrag.generation.client import GenerationResult, LegalGenerationClient
 
 logger = logging.getLogger(__name__)
+
+
+class PipelineInitializationError(RuntimeError):
+    """
+    Raised when the pipeline required for inference cannot be initialized.
+
+    In production this includes missing/unavailable artifacts or invalid generation
+    configuration. Callers must treat this as a non-ready state (HTTP 503) and must
+    never fall back to stub components.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +157,6 @@ def create_stub_chunks() -> pd.DataFrame:
                 "for a non-bailable offence, subject to statutory conditions under Section 438(2)."
             ),
             "court_code": "01",
-            "court_name": "High Court of Judicature at Bombay",
             "decision_date": "2020-01-15",
             "title": "State of Maharashtra v. ABC",
         },
@@ -159,7 +169,6 @@ def create_stub_chunks() -> pd.DataFrame:
                 "must be served within 30 days of receiving information regarding the dishonour of the cheque."
             ),
             "court_code": "02",
-            "court_name": "High Court of Delhi",
             "decision_date": "2021-03-22",
             "title": "XYZ Enterprises v. Union of India",
         },
@@ -172,7 +181,6 @@ def create_stub_chunks() -> pd.DataFrame:
                 "where allegations in the first information report do not disclose the commission of any cognizable offence."
             ),
             "court_code": "03",
-            "court_name": "High Court of Punjab and Haryana",
             "decision_date": "2022-07-10",
             "title": "PQR Corporation v. State",
         },
@@ -185,7 +193,6 @@ def create_stub_chunks() -> pd.DataFrame:
                 "to issue prerogative writs for the enforcement of fundamental rights and for any other purpose."
             ),
             "court_code": "04",
-            "court_name": "High Court of Karnataka",
             "decision_date": "2023-05-18",
             "title": "RST Ltd v. Assistant Commissioner",
         },
@@ -198,7 +205,6 @@ def create_stub_chunks() -> pd.DataFrame:
                 "and Conciliation Act, 1996 require patent illegality appearing on the face of the award."
             ),
             "court_code": "05",
-            "court_name": "High Court of Madras",
             "decision_date": "2024-02-09",
             "title": "LMN Builders v. Metro Rail",
         },
@@ -292,6 +298,8 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
     generator = LegalGenerationClient(
         api_key=settings.groq_api_key,
         model_name=settings.groq_model_name,
+        request_timeout=settings.groq_request_timeout,
+        max_retries=settings.groq_max_retries,
     )
 
     return PipelineComponents(
@@ -309,36 +317,99 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
 # ---------------------------------------------------------------------------
 
 _cached_pipeline: Optional[PipelineComponents] = None
+_initialization_error: Optional[PipelineInitializationError] = None
+_pipeline_lock = threading.Lock()
 
 
 def get_pipeline(settings: Optional[Settings] = None) -> PipelineComponents:
     """
     Returns the process-level singleton PipelineComponents instance.
-    Loads components once on startup / first request.
+
+    Loading is protected by a lock so concurrent first requests cannot initialize
+    SentenceTransformer, CrossEncoder, FAISS, BM25, or the generator more than once.
+    A failed initialization is remembered and re-raised (fail closed) rather than
+    retried on every request or replaced with stub components.
     """
-    global _cached_pipeline
+    global _cached_pipeline, _initialization_error
+
     if _cached_pipeline is not None:
         return _cached_pipeline
+    if _initialization_error is not None:
+        raise _initialization_error
 
     if settings is None:
         settings = get_settings()
 
-    if settings.is_local_stub:
-        logger.info("Initializing LegalRAG pipeline in 'local_stub' mode.")
-        _cached_pipeline = load_stub_pipeline()
-    elif settings.is_production:
-        logger.info("Initializing LegalRAG pipeline in 'production' mode.")
-        _cached_pipeline = load_production_pipeline(settings)
-    else:
-        raise ValueError(f"Unrecognized environment mode: '{settings.environment}'")
+    with _pipeline_lock:
+        # Re-check inside the lock: a concurrent request may have initialized it already.
+        if _cached_pipeline is not None:
+            return _cached_pipeline
+        if _initialization_error is not None:
+            raise _initialization_error
+
+        try:
+            if settings.is_local_stub:
+                logger.info("Initializing LegalRAG pipeline in 'local_stub' mode.")
+                pipeline = load_stub_pipeline()
+            elif settings.is_production:
+                logger.info("Initializing LegalRAG pipeline in 'production' mode.")
+                pipeline = load_production_pipeline(settings)
+            else:
+                raise ValueError(f"Unrecognized environment mode: '{settings.environment}'")
+
+            if settings.is_production and pipeline.environment != "production":
+                raise PipelineInitializationError(
+                    "Production mode refused to serve stub pipeline components."
+                )
+
+            _cached_pipeline = pipeline
+            _initialization_error = None
+        except PipelineInitializationError as exc:
+            _initialization_error = exc
+            raise
+        except Exception as exc:  # noqa: BLE001 - normalize all init failures
+            wrapped = PipelineInitializationError(str(exc))
+            _initialization_error = wrapped
+            raise wrapped from exc
 
     return _cached_pipeline
 
 
+def check_readiness(settings: Optional[Settings] = None) -> Tuple[bool, str]:
+    """
+    Lightweight readiness probe.
+
+    Verifies that inference dependencies are initialized and available. Returns
+    ``(True, reason)`` when ready and ``(False, reason)`` otherwise. Never initializes
+    anything for the liveness endpoint.
+    """
+    if settings is None:
+        settings = get_settings()
+
+    if settings.environment == "production":
+        config_issues = settings.production_configuration_issues
+        if config_issues:
+            logger.error("Readiness failed due to configuration: %s", "; ".join(config_issues))
+            return False, "Service dependencies are not initialized."
+
+    try:
+        pipeline = get_pipeline(settings)
+    except Exception as exc:  # noqa: BLE001 - readiness must never raise
+        logger.error("Readiness failed during pipeline initialization: %s", exc)
+        return False, "Service dependencies are not initialized."
+
+    if settings.is_production and pipeline.environment != "production":
+        logger.error("Readiness failed: production requested but stub components loaded.")
+        return False, "Service dependencies are not initialized."
+
+    return True, "ready"
+
+
 def reset_pipeline_cache() -> None:
     """
-    Clears the cached pipeline singleton.
+    Clears the cached pipeline singleton and any recorded initialization failure.
     Used for test isolation and environment reconfiguration.
     """
-    global _cached_pipeline
+    global _cached_pipeline, _initialization_error
     _cached_pipeline = None
+    _initialization_error = None

@@ -2,14 +2,19 @@
 Configuration management for the LegalRAG FastAPI backend service.
 
 Supports two runtime environments:
-- 'local_stub': Lightweight local development mode without loading heavy models or FAISS index.
-- 'production': Full pipeline execution with real retrieval indexes and Groq LLM generation.
+- 'production' (fail-closed default): Full pipeline execution with real retrieval indexes
+  and Groq LLM generation. Production never falls back to stub components.
+- 'local_stub': Lightweight local development mode without loading heavy models or FAISS
+  index. Must be selected explicitly (via environment variable or .env) for local dev/tests.
+
+All configuration is server-side only. Clients cannot supply any of these values through
+the API request body.
 """
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Optional
-from pydantic import AliasChoices, Field, model_validator
+from typing import List, Literal, Optional
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,8 +30,9 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Runtime Environment: 'local_stub' (default for 6GB dev laptop) or 'production'
-    environment: Literal["local_stub", "production"] = "local_stub"
+    # Runtime Environment: fail-closed default is 'production'. Local development and tests
+    # must explicitly opt in to 'local_stub'.
+    environment: Literal["local_stub", "production"] = "production"
 
     # Artifact directory and Hub storage location
     artifact_dir: Path = Field(
@@ -61,10 +67,22 @@ class Settings(BaseSettings):
     )
     groq_model_name: str = Field(
         default="llama-3.3-70b-versatile",
-        validation_alias=AliasChoices(
-            "groq_model_name", "GROQ_MODEL_NAME", "generation_model_name", "GENERATION_MODEL_NAME"
-        ),
+        validation_alias=AliasChoices("groq_model_name", "GROQ_MODEL_NAME"),
         description="Groq LLM model identifier for grounded generation.",
+    )
+
+    # Groq client hardening (explicit timeout + bounded retries for transient failures)
+    groq_request_timeout: float = Field(
+        default=30.0,
+        validation_alias=AliasChoices("groq_request_timeout", "GROQ_REQUEST_TIMEOUT"),
+        description="Per-request timeout (seconds) for Groq generation calls.",
+    )
+    groq_max_retries: int = Field(
+        default=2,
+        ge=0,
+        le=5,
+        validation_alias=AliasChoices("groq_max_retries", "GROQ_MAX_RETRIES"),
+        description="Maximum bounded retries for transient Groq provider failures.",
     )
 
     # Groq API configuration (externalized secrets)
@@ -85,6 +103,15 @@ class Settings(BaseSettings):
         default=7860,
         validation_alias=AliasChoices("api_port", "API_PORT", "PORT"),
         description="Port for the API service (defaults to standard 7860).",
+    )
+
+    # Startup provisioning of production artifacts from Hugging Face Hub
+    artifact_download_timeout_seconds: int = Field(
+        default=3600,
+        validation_alias=AliasChoices(
+            "artifact_download_timeout_seconds", "ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS"
+        ),
+        description="Maximum time (seconds) allowed for startup artifact provisioning.",
     )
 
     @property
@@ -112,18 +139,20 @@ class Settings(BaseSettings):
         """Returns True if the runtime environment is set to local stub."""
         return self.environment == "local_stub"
 
-    @model_validator(mode="after")
-    def validate_environment_credentials(self) -> "Settings":
+    @property
+    def production_configuration_issues(self) -> List[str]:
         """
-        Ensures production-specific credentials are provided when running in production mode.
-        Local stub mode does not require external credentials.
+        Returns production configuration problems that make the service non-ready.
+
+        These are reported by the readiness endpoint (HTTP 503) rather than raising at
+        settings construction time, so the process can still expose a non-ready state
+        instead of crashing or silently serving stub responses.
         """
+        issues: List[str] = []
         if self.environment == "production":
             if not self.groq_api_key or not self.groq_api_key.strip():
-                raise ValueError(
-                    "Production environment requires 'GROQ_API_KEY' to be set."
-                )
-        return self
+                issues.append("GROQ_API_KEY is not configured.")
+        return issues
 
 
 @lru_cache()

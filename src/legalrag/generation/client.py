@@ -6,6 +6,7 @@ with greedy decoding (temperature=0.0) and explicit error shielding.
 """
 
 import os
+import time
 import logging
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
@@ -81,6 +82,10 @@ class LegalGenerationClient:
         self,
         api_key: Optional[str] = None,
         model_name: str = "llama-3.3-70b-versatile",
+        request_timeout: float = 30.0,
+        max_retries: int = 2,
+        retry_backoff_base: float = 0.5,
+        retry_backoff_max: float = 8.0,
     ):
         if Groq is None:
             raise ImportError(
@@ -97,7 +102,17 @@ class LegalGenerationClient:
 
         self._api_key = resolved_key
         self.model_name = model_name
-        self.client = Groq(api_key=self._api_key)
+        self.request_timeout = request_timeout
+        self.max_retries = max(0, int(max_retries))
+        self.retry_backoff_base = retry_backoff_base
+        self.retry_backoff_max = retry_backoff_max
+        # Bounded, explicit retries are implemented in this client; disable SDK-internal
+        # retries so the total number of provider calls stays predictable.
+        self.client = Groq(
+            api_key=self._api_key,
+            timeout=request_timeout,
+            max_retries=0,
+        )
 
     def generate(
         self,
@@ -107,128 +122,133 @@ class LegalGenerationClient:
         max_tokens: int = 1024,
     ) -> GenerationResult:
         """
-        Executes generation and returns a typed GenerationResult.
-        Traps all API and connection errors gracefully to prevent error leaks into answers.
+        Executes generation with an explicit request timeout and bounded retries for
+        transient provider failures.
+
+        Returns a successful GenerationResult on success. Provider failures are converted
+        into a controlled GenerationError (surfaced as HTTP 502 at the API boundary) so
+        raw provider errors and credentials never leak into responses.
         """
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+        attempts = max(1, self.max_retries + 1)
+        last_error: Optional[Exception] = None
 
-            # Extract generated content
-            content = None
-            finish_reason = None
-            if response.choices and len(response.choices) > 0:
-                choice = response.choices[0]
-                if getattr(choice, "message", None) is not None:
-                    content = choice.message.content
-                finish_reason = getattr(choice, "finish_reason", None)
-
-            if content is None or not content.strip():
-                return GenerationResult(
-                    text=None,
-                    status="empty_response",
-                    error_message="Groq model returned empty content payload.",
-                    error_type="EmptyResponseError",
-                    model_name=self.model_name,
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=self.request_timeout,
                 )
+                return self._parse_response(response)
+            except GenerationError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - classify provider failures
+                if self._is_retryable(exc) and attempt < attempts:
+                    delay = min(
+                        self.retry_backoff_base * (2 ** (attempt - 1)),
+                        self.retry_backoff_max,
+                    )
+                    logger.warning(
+                        "Transient Groq failure (attempt %d/%d, %s); retrying in %.2fs.",
+                        attempt,
+                        attempts,
+                        type(exc).__name__,
+                        delay,
+                    )
+                    time.sleep(delay)
+                    last_error = exc
+                    continue
+                raise self._to_generation_error(exc) from exc
 
-            # Extract token usage metadata if available
-            prompt_tokens = None
-            completion_tokens = None
-            total_tokens = None
+        raise self._to_generation_error(last_error)
 
-            if getattr(response, "usage", None) is not None:
-                usage = response.usage
-                prompt_tokens = getattr(usage, "prompt_tokens", None)
-                completion_tokens = getattr(usage, "completion_tokens", None)
-                total_tokens = getattr(usage, "total_tokens", None)
+    def _parse_response(self, response: Any) -> GenerationResult:
+        """Extracts generated text and token usage, raising on empty payloads."""
+        content = None
+        finish_reason = None
+        if getattr(response, "choices", None):
+            choice = response.choices[0]
+            if getattr(choice, "message", None) is not None:
+                content = choice.message.content
+            finish_reason = getattr(choice, "finish_reason", None)
 
-            return GenerationResult(
-                text=content,
-                status="success",
-                model_name=self.model_name,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                finish_reason=str(finish_reason) if finish_reason else None,
+        if content is None or not str(content).strip():
+            raise GenerationError(
+                message="Generation provider returned an empty response.",
+                status_code=502,
+                error_type="EmptyResponseError",
             )
 
-        except GroqAuthenticationError as exc:
-            logger.error("Groq API AuthenticationError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="auth_error",
-                error_message="Groq API authentication failed.",
-                error_type="AuthenticationError",
-                model_name=self.model_name,
-            )
+        prompt_tokens = completion_tokens = total_tokens = None
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            prompt_tokens = getattr(usage, "prompt_tokens", None)
+            completion_tokens = getattr(usage, "completion_tokens", None)
+            total_tokens = getattr(usage, "total_tokens", None)
 
-        except GroqRateLimitError as exc:
-            logger.error("Groq API RateLimitError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="rate_limited",
-                error_message="Groq API rate limit exceeded.",
-                error_type="RateLimitError",
-                model_name=self.model_name,
-            )
+        return GenerationResult(
+            text=str(content),
+            status="success",
+            model_name=self.model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            finish_reason=str(finish_reason) if finish_reason else None,
+        )
 
-        except GroqBadRequestError as exc:
-            logger.error("Groq API BadRequestError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="bad_request",
-                error_message=f"Groq API bad request: {str(exc)}",
-                error_type="BadRequestError",
-                model_name=self.model_name,
+    @staticmethod
+    def _retryable_exception_types() -> tuple:
+        """Returns the provider exception classes that are safe to retry."""
+        return tuple(
+            candidate
+            for candidate in (
+                GroqRateLimitError,
+                GroqAPIConnectionError,
+                GroqInternalServerError,
             )
+            if candidate is not None
+        )
 
-        except GroqInternalServerError as exc:
-            logger.error("Groq API ServerError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="api_error",
-                error_message=f"Groq API server error: {str(exc)}",
-                error_type="InternalServerError",
-                model_name=self.model_name,
-            )
+    def _is_retryable(self, exc: Exception) -> bool:
+        """Classifies provider failures safe to retry a bounded number of times."""
+        retryable = self._retryable_exception_types()
+        if retryable and isinstance(exc, retryable):
+            return True
+        if GroqAPIError is not None and isinstance(exc, GroqAPIError):
+            status = getattr(exc, "status_code", None)
+            if status in (408, 409, 429):
+                return True
+            if isinstance(status, int) and status >= 500:
+                return True
+        return False
 
-        except GroqAPIConnectionError as exc:
-            logger.error("Groq API ConnectionError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="api_error",
-                error_message=f"Groq API connection error: {str(exc)}",
-                error_type="APIConnectionError",
-                model_name=self.model_name,
-            )
+    def _to_generation_error(self, exc: Optional[Exception]) -> GenerationError:
+        """Maps a provider exception to a sanitized, controlled application exception."""
+        logger.error(
+            "Groq generation failed (%s).",
+            type(exc).__name__ if exc is not None else "unknown",
+        )
+        error_type = type(exc).__name__ if exc is not None else "GenerationError"
+        message = "Generation provider request failed."
 
-        except GroqAPIError as exc:
-            logger.error("Groq API general APIError: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="api_error",
-                error_message=f"Groq API error: {str(exc)}",
-                error_type="APIError",
-                model_name=self.model_name,
-            )
+        if exc is not None:
+            if GroqAuthenticationError is not None and isinstance(exc, GroqAuthenticationError):
+                message = "Generation provider authentication failed."
+            elif GroqRateLimitError is not None and isinstance(exc, GroqRateLimitError):
+                message = "Generation provider rate limit exceeded."
+            elif GroqBadRequestError is not None and isinstance(exc, GroqBadRequestError):
+                message = "Generation provider rejected the request."
+            elif GroqAPIConnectionError is not None and isinstance(exc, GroqAPIConnectionError):
+                message = "Could not reach the generation provider."
+            elif GroqInternalServerError is not None and isinstance(exc, GroqInternalServerError):
+                message = "Generation provider returned a server error."
 
-        except Exception as exc:
-            logger.error("Unexpected error during Groq generation: %s", str(exc))
-            return GenerationResult(
-                text=None,
-                status="api_error",
-                error_message=f"Unexpected generation failure: {str(exc)}",
-                error_type=type(exc).__name__,
-                model_name=self.model_name,
-            )
+        return GenerationError(message=message, status_code=502, error_type=error_type)
 
     def generate_answer(
         self,
