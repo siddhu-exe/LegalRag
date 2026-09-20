@@ -107,16 +107,18 @@
 
 - **Application Factory**: `create_app()` in `src/legalrag/api/main.py`.
 - **Runtime Dual-Mode**:
-  - `local_stub`: Instant local development on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS index files.
-  - `production`: Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Groq (llama-3.3-70b-versatile).
+  - `production` (fail-closed default): Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Groq (llama-3.3-70b-versatile). Missing artifacts are provisioned from Hugging Face Hub at startup; if unavailable the service stays NOT READY and never serves stubs.
+  - `local_stub` (explicit opt-in): Instant local development on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS index files.
 - **REST Endpoints**:
-  - `GET /health` -> `HealthResponse(status="ok" | "degraded", environment="local_stub" | "production")`
+  - `GET /health` -> lightweight liveness: `HealthResponse(status="ok", environment=...)` (never loads models).
+  - `GET /ready` -> readiness: `ReadinessResponse(status="ready")` or HTTP 503 when the pipeline/artifacts are unavailable.
   - `GET /` -> Service root with API metadata, environment, and `/docs` documentation link.
   - `POST /query` -> Executes hybrid retrieval, RRF fusion, cross-encoder reranking, prompt formatting, Groq generation, citation verification, and latency breakdown.
 - **Data Transfer Schemas** (`src/legalrag/api/schemas.py`):
-  - `QueryRequest`: `question: str` (min length 3, max length 4000, whitespace-stripped).
+  - `QueryRequest`: accepts ONLY `question: str` (min length 3, max length 4000, whitespace-stripped). Extra/server-config fields are rejected with HTTP 422.
   - `QueryResponse`: `answer`, `citations: List[Citation]`, `retrieved_chunk_ids: List[str]`, `retrieve_ms: float`, `rerank_ms: float`, `generate_ms: float`, `total_ms: float`, `status: Literal["ok", "generation_error", "retrieval_error"]`.
   - `Citation`: `chunk_id`, `cnr`, `court_code`, `decision_date`, `title`.
+- **HTTP Error Semantics**: 422 invalid request, 500 retrieval/reranking failure, 502 LLM/generation provider failure, 503 pipeline/readiness failure. Error bodies are sanitized (no keys, tokens, paths, or stack traces).
 - **Generation & LLMOps**:
   - Model: Groq (`llama-3.3-70b-versatile`) via official `groq` SDK (`LegalGenerationClient`).
   - Strict Exception Shielding: Traps all `GroqAuthenticationError`, `GroqRateLimitError`, `GroqBadRequestError`, `GroqInternalServerError`, `GroqAPIConnectionError`, `GroqAPIError`. Returns sanitized user-facing responses with `status="generation_error"` or `"retrieval_error"` while logging full traces server-side.

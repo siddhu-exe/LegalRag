@@ -213,7 +213,7 @@ LegalRAG features dual runtime modes for zero-overhead local development vs. ful
 #### Mode A: Local Development (`local_stub` mode)
 Runs instantly on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS indices:
 ```bash
-# Default mode: local_stub
+# Stub mode must be selected explicitly; production is the fail-closed default.
 export ENVIRONMENT=local_stub
 export API_PORT=7860
 
@@ -222,16 +222,22 @@ uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 - Interactive Swagger UI: `http://localhost:7860/docs`
 - Health Probe: `http://localhost:7860/health`
+- Readiness Probe: `http://localhost:7860/ready`
 
 #### Mode B: Production Serving (`production` mode)
-Executes the full 538k-chunk retrieval cascade with Groq LLaMA 3.3 70B generation:
+Executes the full 538k-chunk retrieval cascade with Groq LLaMA 3.3 70B generation.
+Production containers download missing artifacts (`bm25.pkl`, `dense.index`,
+`legal_chunks.parquet`) from Hugging Face Hub automatically at startup and never fall back
+to stub responses:
 ```bash
-# 1. Download frozen runtime artifacts from Hugging Face Hub
+# 1. (Optional) Pre-download frozen runtime artifacts from Hugging Face Hub
 python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
 
-# 2. Configure production environment
+# 2. Configure production environment (HF_REPO_ID required for startup provisioning)
 export ENVIRONMENT=production
 export GROQ_API_KEY="your-groq-api-key"
+export HF_REPO_ID="<hf-username>/<repo-name>"
+export HF_TOKEN="your-huggingface-token"   # only for private repositories
 export API_PORT=7860
 
 # 3. Start production server
@@ -242,7 +248,11 @@ uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 Complies with standard container runtime specification (non-root UID 1000, exposed port 7860):
 ```bash
 docker build -t legalrag-api .
-docker run -p 7860:7860 -e ENVIRONMENT=production -e GROQ_API_KEY="your-key" legalrag-api
+docker run -p 7860:7860 \
+    -e ENVIRONMENT=production \
+    -e GROQ_API_KEY="your-key" \
+    -e HF_REPO_ID="<hf-username>/<repo-name>" \
+    legalrag-api
 ```
 
 ### 3. Running Tests

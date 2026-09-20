@@ -134,9 +134,12 @@ Query ──► [ Dense (Top 50) ] ─┘
 ### 4. Context Assembly & Prompt Formatting
 Retrieved chunks are structured into clean, attributed context blocks:
 ```text
-[Chunk ID: {chunk_id} | Court: {court_name} | Date: {decision_date}]
+[Chunk ID: {chunk_id} | Court: {court_code} | Date: {decision_date}]
 {chunk_text}
 ```
+
+`court_code` is the only court identifier present in `legal_chunks.parquet`; no court name is
+invented when a code-to-name mapping is unavailable.
 
 The system prompt strictly instructs the generation model to:
 - Rely strictly on provided context passages.
@@ -147,7 +150,7 @@ The system prompt strictly instructs the generation model to:
 - **Interface**: Groq Cloud API via official `groq` SDK (`LegalGenerationClient`).
 - **Model**: `llama-3.3-70b-versatile` (configurable via `GROQ_MODEL_NAME`).
 - **Generation Parameters**: `temperature=0.0` (greedy decoding for reproducibility and factual consistency), `max_tokens=1024`.
-- **Error Shielding**: All upstream API errors (auth, quota/rate-limits, network timeouts, invalid requests) are trapped and isolated into structured `GenerationResult` objects and explicit `status="generation_error"` responses, preventing raw error text from leaking into generated answer bodies.
+- **Error Shielding & Hardening**: The client enforces an explicit per-request timeout and bounded exponential backoff for transient provider failures (rate limits, connection errors, 5xx). Provider failures are converted into a controlled `GenerationError` that the API surfaces as HTTP 502 with a sanitized body. API keys are never logged or returned.
 
 ### 6. FastAPI Backend Service Architecture
 The LegalRAG service is built with FastAPI and Pydantic v2, architected around singleton dependency injection and dual runtime modes:
@@ -186,28 +189,32 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
 ```
 
 #### A. Dual Runtime Environments
-- **`local_stub` (Default)**: Lightweight deterministic mock pipeline tailored for resource-constrained development laptops (< 100 MB RAM). Runs full API validation without loading multi-gigabyte models or FAISS index files.
-- **`production`**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`) and connects to Groq API via `GROQ_API_KEY`.
+- **`production` (fail-closed default)**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`), the BGE embedding model, and the Cross-Encoder reranker, and connects to the Groq API via `GROQ_API_KEY`. Production never falls back to stub components; if artifacts or configuration are unavailable the service reports NOT READY (HTTP 503).
+- **`local_stub` (explicit opt-in)**: Lightweight deterministic mock pipeline tailored for resource-constrained development laptops and tests (< 100 MB RAM). Selected only via an explicit `ENVIRONMENT=local_stub` setting.
 
 #### B. API Endpoints
-- **`GET /health`**: Health probe returning operational status and active runtime environment (`HealthResponse`).
+- **`GET /health`**: Lightweight liveness probe. Never initializes or loads models/artifacts (`HealthResponse`).
+- **`GET /ready`**: Readiness probe. Verifies the inference pipeline/artifacts are initialized and available; returns HTTP 503 when not ready (`ReadinessResponse`).
 - **`GET /`**: Service root returning metadata, version, environment, and Swagger documentation link.
 - **`POST /query`**: End-to-end multi-stage legal retrieval and grounded answer generation (`QueryRequest` -> `QueryResponse`).
 
 #### C. Request & Response Schemas
-- **`QueryRequest`**: Requires `question` (3 to 4,000 characters, whitespace stripped).
+- **`QueryRequest`**: Accepts ONLY `question` (3 to 4,000 characters, whitespace stripped). Extra/server configuration fields are rejected with HTTP 422.
 - **`QueryResponse`**: Returns `answer`, `citations` list, `retrieved_chunk_ids`, granular latency measurements (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`), and execution `status` (`ok`, `generation_error`, `retrieval_error`).
 - **`Citation`**: Metadata including `chunk_id`, `cnr`, `court_code`, `decision_date`, and `title`.
 
 #### D. Production Exception Shielding & LLMOps
 - **Sanitized Failures**: Upstream retrieval or generation errors (e.g. rate limits, network timeouts, index faults) are caught and logged server-side via `logger.exception()`.
-- **Response Privacy**: API consumers receive safe, standardized messages (`"An error occurred while generating the legal answer. Please try again later."`) with explicit `status="generation_error"` or `status="retrieval_error"`, preventing secret or stack trace leakage.
+- **HTTP Error Semantics**: Requests fail with proper status codes instead of `200 OK` error bodies: `422` invalid request, `500` retrieval/reranking failure, `502` LLM/generation provider failure, `503` pipeline/readiness failure.
+- **Response Privacy**: API consumers receive generic, standardized error bodies with no API keys, HF tokens, stack traces, internal filesystem paths, or provider credentials.
 - **Citation Hallucination Filter**: Regex-extracted `[Chunk ID: ...]` citations are cross-referenced against `top_chunk_ids`. Hallucinated IDs not present in retrieved context are stripped from the response citations list.
 
 ### 7. Containerization & Deployment Specification
 - **Base Image**: `python:3.10-slim` with system build utilities (`build-essential`).
 - **User Permissions**: Adheres to Hugging Face Spaces requirements by creating and running as non-root user `user` with UID `1000`.
 - **Port Binding**: Default port `7860` configured via `api_port` with fallback aliases (`PORT`, `API_PORT`).
+- **Fail-Closed Defaults**: The image sets `ENVIRONMENT=production`. Stub components are never selected implicitly.
+- **Automatic Artifact Provisioning**: On startup the container downloads any missing artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`) from Hugging Face Hub via `scripts/download_artifacts.py`. Artifacts are not baked into the image or committed to Git. Download failure leaves the service NOT READY (HTTP 503).
 - **Healthcheck Probe**: `curl -f http://localhost:7860/health || exit 1`.
 
 ### 8. Evidence-Grounded Benchmark & Judge Subsystem
@@ -231,7 +238,7 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
 | **Chunking & Index Generation** | **Completed** | 538k chunks indexed via BM25 (`bm25.pkl`) and FAISS (`dense.index`). |
 | **Multi-Stage Retrieval Engine** | **Completed** | BM25 + BGE + RRF + Cross-Encoder fully benchmarked. |
 | **RAG Generation & Evaluation** | **Completed** | 497 validated questions evaluated with multi-criteria LLM judge. |
-| **FastAPI Backend Service** | **Completed** | REST endpoints (`/health`, `/query`) with granular latency attribution and dual runtime modes (`local_stub` / `production`). |
+| **FastAPI Backend Service** | **Completed** | REST endpoints (`/health`, `/ready`, `/query`) with granular latency attribution, proper HTTP error semantics, and fail-closed dual runtime modes (`production` / `local_stub`). |
 | **Docker & Cloud Deployment** | **Completed** | Hugging Face Spaces Docker containerization and Hub artifact download automation. |
 | **React / Streamlit UI** | *Planned (Phase 2)* | Interactive dashboard with chunk highlighting, citation graph, and court filters. |
 
@@ -259,8 +266,12 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
 ### 2. `legal_chunks.parquet`
 ```json
 {
-  "chunk_id": "STRING (format: '{cnr}_chunk_{index}')",
+  "chunk_id": "STRING",
   "cnr": "STRING",
+  "court_code": "STRING",
+  "decision_date": "STRING (YYYY-MM-DD)",
+  "case_type": "STRING",
+  "title": "STRING",
   "chunk_index": "INTEGER",
   "text": "STRING (Chunk text, 100-1200 characters)"
 }

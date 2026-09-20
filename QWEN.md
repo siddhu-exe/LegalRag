@@ -16,7 +16,7 @@ Production-hardened, hybrid-retrieval RAG (Retrieval-Augmented Generation) syste
   - Strict exception shielding preventing raw API/rate-limit errors from leaking into answer bodies.
   - Regex citation validation (`[Chunk ID: ...]`) cross-referenced strictly against retrieved context chunks.
 - **FastAPI Backend (`src/legalrag/api/`)**:
-  - Dual runtime environments: `local_stub` (< 100 MB RAM for development) vs. `production` (full index loading).
+  - Dual runtime environments: `production` (fail-closed default, full index loading) vs. explicit `local_stub` (< 100 MB RAM for development).
   - High-resolution latency tracking (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`).
   - Containerized with Docker for Hugging Face Spaces (UID 1000, port 7860).
 - **Evaluation Benchmark**: 497 substring-verified gold questions evaluated with multi-criteria LLM judge.
@@ -74,7 +74,7 @@ LegalRAG/
 ## Environment & Execution
 
 ### Dual Runtime Modes
-1. **`local_stub` (Default)**:
+1. **`local_stub` (explicit opt-in, dev/test only)**:
    - In-memory mock retrievers and generators (< 100 MB RAM).
    - Zero model downloads, zero GPU requirements.
    - Run locally:
@@ -85,11 +85,13 @@ LegalRAG/
      ```
 2. **`production`**:
    - Full 538k-chunk pipeline with `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, and Groq LLM.
+   - Missing artifacts are downloaded from Hugging Face Hub at startup; the service reports NOT READY (HTTP 503) if provisioning or initialization fails.
    - Run on Azure Container Apps, Hugging Face Spaces, or GPU cloud instance:
      ```bash
      python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
      export ENVIRONMENT=production
      export GROQ_API_KEY="your-groq-api-key"
+     export HF_REPO_ID="<hf-username>/<repo-name>"
      export API_PORT=7860
      uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
      ```

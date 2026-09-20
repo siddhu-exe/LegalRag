@@ -33,9 +33,9 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
       answer fields or judge evaluations
 - [x] Add per-stage latency logging: `retrieve_ms`, `rerank_ms`, `generate_ms`,
       and `total_ms` captured monotonically via `time.perf_counter()`
-- [x] Build FastAPI backend (`src/legalrag/api/`): `/health` and `/query`
+- [x] Build FastAPI backend (`src/legalrag/api/`): `/health`, `/ready`, and `/query`
       endpoints wrapping retrieval, reranking, and generation with dual-mode
-      dependency injection (`local_stub` vs `production`)
+      dependency injection (fail-closed `production` vs explicit `local_stub`)
 - [x] Deploy preparation: Multi-stage `Dockerfile` (port 7860, non-root user
       UID 1000) and `scripts/download_artifacts.py` for Azure Container Apps / HF Hub
 - [ ] Minimal frontend (Streamlit is fine) — query box, answer, cited chunks
@@ -132,9 +132,10 @@ if something looks suboptimal, flag it and ask before changing.
 src/legalrag/
   api/
     config.py     # Pydantic v2 Settings with secret masking & port fallback
-    dependencies.py # Singleton DI provider (local_stub vs production)
+    dependencies.py # Thread-safe singleton DI, fail-closed production vs local_stub
     main.py       # FastAPI application factory & metadata routes
-    routes.py     # /health and /query with error shielding & latency breakdown
+    provisioning.py # Startup HF artifact provisioning (bm25.pkl/dense.index/legal_chunks.parquet)
+    routes.py     # /health, /ready, /query with HTTP error semantics & latency breakdown
     schemas.py    # Request/Response models with input validation
   preprocessing/
     cleaner.py    # control-char stripping, >1% corruption detection

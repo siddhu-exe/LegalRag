@@ -168,9 +168,11 @@ To refine candidate ordering within the top-50 hybrid pool before feeding contex
 For each evaluation question, the **Top 5 reranked chunks** were formatted into structured context blocks:
 
 ```text
-[Chunk ID: {chunk_id} | Court: {court_name} | Date: {decision_date}]
+[Chunk ID: {chunk_id} | Court: {court_code} | Date: {decision_date}]
 {chunk_text}
 ```
+
+`court_code` is the only court identifier present in `legal_chunks.parquet`; no court name is fabricated.
 
 The system prompt strictly enforced:
 - Synthesize answers solely from the provided text blocks.

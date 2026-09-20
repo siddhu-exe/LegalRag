@@ -268,13 +268,13 @@ python3 -c "import faiss; index = faiss.read_index('dense.index'); assert index.
 ## 8. Running the FastAPI Backend Service
 
 The LegalRAG service supports dual runtime modes for zero-overhead local development vs. full production scale:
-1. **`local_stub` (Default)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop, < 100 MB RAM).
-2. **`production`**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Groq (`llama-3.3-70b-versatile`).
+1. **`production` (fail-closed default)**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Groq (`llama-3.3-70b-versatile`). If required artifacts or configuration are unavailable, the service reports NOT READY (HTTP 503) and never serves stub responses.
+2. **`local_stub` (explicit opt-in)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop, < 100 MB RAM).
 
 ### A. Local Development (`local_stub` mode)
-No heavy models, disk artifacts, or GPU required:
+No heavy models, disk artifacts, or GPU required. Stub mode must be selected explicitly:
 ```bash
-# Set environment (defaults to local_stub and port 7860)
+# Explicitly select local_stub (production is the fail-closed default)
 export ENVIRONMENT=local_stub
 export API_PORT=7860
 
@@ -283,15 +283,21 @@ uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 - Interactive Swagger UI: `http://localhost:7860/docs`
 - Health check: `http://localhost:7860/health`
+- Readiness check: `http://localhost:7860/ready`
 
 ### B. Production Serving (`production` mode)
+Production containers automatically download any missing artifacts from Hugging Face Hub at
+startup using `scripts/download_artifacts.py`; existing artifacts are reused. You can also
+provision them ahead of time manually:
 ```bash
-# 1. Download artifacts from Hugging Face Hub
+# 1. (Optional) Pre-download artifacts from Hugging Face Hub
 python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
 
-# 2. Set environment variables
+# 2. Set environment variables (HF_REPO_ID is required for startup provisioning)
 export ENVIRONMENT=production
 export GROQ_API_KEY="your-groq-api-key"
+export HF_REPO_ID="<hf-username>/<repo-name>"
+export HF_TOKEN="your-huggingface-token"   # only for private repositories
 export API_PORT=7860
 
 # 3. Start production server
@@ -308,8 +314,14 @@ docker build -t legalrag-api .
 docker run -p 7860:7860 \
     -e ENVIRONMENT=production \
     -e GROQ_API_KEY="your-groq-api-key" \
+    -e HF_REPO_ID="<hf-username>/<repo-name>" \
+    -e HF_TOKEN="your-huggingface-token" \
     legalrag-api
 ```
+
+The image defaults to `ENVIRONMENT=production` and downloads missing artifacts at startup.
+Until the pipeline is initialized, `GET /ready` returns HTTP 503 and `/query` will not serve
+stub responses.
 
 ### D. Running Unit & Integration Tests
 ```bash
@@ -318,4 +330,3 @@ python -m unittest discover -s tests -v
 # Or using pytest
 pytest tests/ -v
 ```
-
