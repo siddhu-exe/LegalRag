@@ -7,7 +7,7 @@ FROM python:3.10-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    ENVIRONMENT=local_stub \
+    ENVIRONMENT=production \
     API_PORT=7860 \
     API_HOST=0.0.0.0 \
     HOME=/home/user
@@ -29,7 +29,7 @@ COPY --chown=user:user requirements.txt pyproject.toml README.md ./
 # Install Python dependencies and CPU-optimized FAISS
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt && \
-    pip install faiss-cpu>=1.7.4
+    pip install "faiss-cpu>=1.7.4"
 
 # Copy application source code and scripts
 COPY --chown=user:user src/ ./src/
