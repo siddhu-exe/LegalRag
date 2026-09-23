@@ -81,7 +81,7 @@ class LegalGenerationClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "llama-3.3-70b-versatile",
+        model_name: str = "qwen/qwen3.8-27b",
         request_timeout: float = 30.0,
         max_retries: int = 2,
         retry_backoff_base: float = 0.5,

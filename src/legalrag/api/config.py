@@ -66,9 +66,13 @@ class Settings(BaseSettings):
         description="CrossEncoder reranker model name.",
     )
     groq_model_name: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="qwen/qwen3.8-27b",
         validation_alias=AliasChoices("groq_model_name", "GROQ_MODEL_NAME"),
-        description="Groq LLM model identifier for grounded generation.",
+        description=(
+            "Groq LLM model identifier for grounded generation. Must be a model ID the Groq "
+            "API currently serves (see GET https://api.groq.com/openai/v1/models); a stale ID "
+            "returns a provider 404, surfaced as HTTP 502."
+        ),
     )
 
     # Groq client hardening (explicit timeout + bounded retries for transient failures)
