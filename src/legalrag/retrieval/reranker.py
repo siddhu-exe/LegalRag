@@ -42,6 +42,32 @@ class CrossEncoderReranker:
             )
         return self._model
 
+    def validate(self) -> None:
+        """
+        Verifies the reranker is configurable, raising if it could never be initialized.
+
+        Raises:
+            ImportError: if sentence-transformers is not installed.
+            ValueError: if no model name is configured.
+        """
+        if CrossEncoder is None:
+            raise ImportError(
+                "sentence-transformers is required for CrossEncoderReranker. "
+                "Install it with: pip install sentence-transformers"
+            )
+        if not self.model_name:
+            raise ValueError("CrossEncoderReranker requires a non-empty model_name.")
+
+    def warmup(self) -> None:
+        """
+        Loads the CrossEncoder weights and runs a trivial prediction to prove usability.
+
+        This surfaces a missing/undownloadable reranker model at initialization time
+        (readiness -> 503) instead of failing the first user query.
+        """
+        self.validate()
+        self.model.predict([["warmup query", "warmup passage"]], show_progress_bar=False)
+
     def rerank(
         self,
         query: str,

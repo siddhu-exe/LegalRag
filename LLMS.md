@@ -153,7 +153,7 @@
 | `legal_judgments_clean.parquet` | Cleaned 100k judgments | `cnr, court_code, court_name, decision_date, year, full_text, ...` |
 | `legal_chunks.parquet` | 538,079 text chunks | `chunk_id, cnr, chunk_index, text` |
 | `evaluation_documents.parquet` | 500 sampled evaluation docs | Cleaned judgment records sampled round-robin across courts |
-| `bm25.pkl` | BM25Okapi lexical index | Serialized `BM25Okapi` object |
+| `bm25.pkl` | BM25Okapi lexical index | Pickled `dict` with `bm25` (BM25Okapi) and `chunk_ids`; legacy `model` key is also accepted |
 | `dense.index` | FAISS vector index | `faiss.IndexFlatIP` (538,079 x 768-dim normalized vectors) |
 | `gold_eval.json` | 497 validated questions | `cnr, question, reference_answer, question_type, supporting_text, gold_chunk_ids` |
 | `rag_results.json` | 497 generated answers | `cnr, question, reference_answer, generated_answer, question_type, retrieved_chunk_ids` |

@@ -45,6 +45,21 @@ GENERATION_ERROR_DETAIL = "Answer generation failed."
 NOT_READY_DETAIL = "Service is not ready."
 
 
+def _pipeline_dependency() -> PipelineComponents:
+    """
+    FastAPI dependency wrapper around ``get_pipeline``.
+
+    ``get_pipeline(settings: Optional[Settings] = None)`` is also invoked programmatically
+    with an explicit ``Settings`` argument. Exposing it directly through ``Depends`` makes
+    FastAPI treat that parameter as an *optional request-body field*, which (a) wraps the
+    ``/query`` body as ``{"request": ..., "settings": ...}`` instead of the documented
+    ``{"question": ...}`` and (b) would let a client supply server-side configuration in the
+    request body. This zero-argument wrapper keeps the request body bound strictly to the
+    ``QueryRequest`` schema.
+    """
+    return get_pipeline()
+
+
 @router.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check(
     settings: Settings = Depends(get_settings),
@@ -81,7 +96,7 @@ def readiness_check(
 @router.post("/query", response_model=QueryResponse, tags=["Query"])
 def query_endpoint(
     request: QueryRequest,
-    pipeline: PipelineComponents = Depends(get_pipeline),
+    pipeline: PipelineComponents = Depends(_pipeline_dependency),
 ) -> QueryResponse:
     """
     Executes the multi-stage grounded legal question answering cascade:

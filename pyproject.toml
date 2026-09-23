@@ -101,6 +101,7 @@ skip = [".git", "rag", ".venv", "backup", "build", "dist"]
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-ra -q --strict-markers"
+pythonpath = ["src"]
 testpaths = [
     "tests",
 ]

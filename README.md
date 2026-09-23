@@ -237,6 +237,8 @@ python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --targe
 export ENVIRONMENT=production
 export GROQ_API_KEY="your-groq-api-key"
 export HF_REPO_ID="<hf-username>/<repo-name>"
+# Optional: set MODEL_WARMUP_ENABLED=false to skip loading embedding/reranker weights at
+# startup (default true, which makes /ready reflect true model usability).
 export HF_TOKEN="your-huggingface-token"   # only for private repositories
 export API_PORT=7860
 

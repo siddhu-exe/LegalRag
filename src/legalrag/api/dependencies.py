@@ -249,6 +249,53 @@ def load_stub_pipeline() -> PipelineComponents:
     )
 
 
+def _validate_chunk_id_resolution(pipeline: PipelineComponents) -> None:
+    """Ensures every retrieval chunk ID actually resolves against legal_chunks.parquet."""
+    chunk_ids = pipeline.chunks["chunk_id"]
+    if chunk_ids.isna().any():
+        raise ValueError("legal_chunks.parquet contains null chunk_id values.")
+    if chunk_ids.duplicated().any():
+        raise ValueError("legal_chunks.parquet contains duplicate chunk_id values.")
+
+    known_ids = set(chunk_ids.tolist())
+    for name, ids in (
+        ("BM25", list(getattr(pipeline.bm25, "chunk_ids", None) or [])),
+        ("Dense", list(getattr(pipeline.dense, "chunk_ids", None) or [])),
+    ):
+        if not ids:
+            raise ValueError(f"{name} retriever exposes no chunk_ids.")
+        missing = [cid for cid in ids if cid not in known_ids]
+        if missing:
+            raise ValueError(
+                f"{name} retriever references {len(missing)} chunk_id(s) absent from "
+                f"legal_chunks.parquet (first: {missing[0]!r})."
+            )
+
+
+def validate_pipeline_components(pipeline: PipelineComponents) -> None:
+    """
+    Verifies that every retrieval component in a pipeline is actually usable.
+
+    Structural checks run against real retrievers only; stub components are intentionally
+    lightweight. For production pipelines, generation must be configured and every chunk
+    ID returned by the retrievers must resolve against legal_chunks.parquet.
+
+    Raises:
+        ValueError: when a retrieval component cannot serve queries.
+    """
+    if isinstance(pipeline.bm25, BM25Retriever):
+        pipeline.bm25.validate()
+    if isinstance(pipeline.dense, DenseRetriever):
+        pipeline.dense.validate()
+    if isinstance(pipeline.reranker, CrossEncoderReranker):
+        pipeline.reranker.validate()
+
+    if pipeline.environment == "production":
+        if pipeline.generator is None:
+            raise ValueError("Production pipeline has no generation client configured.")
+        _validate_chunk_id_resolution(pipeline)
+
+
 def load_production_pipeline(settings: Settings) -> PipelineComponents:
     """
     Loads full production pipeline components from verified disk artifacts.
@@ -280,7 +327,10 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
     logger.info("Loading BM25 index from %s", settings.bm25_path)
     bm25 = BM25Retriever.load(settings.bm25_path)
     if not bm25.chunk_ids and chunk_ids:
-        bm25.chunk_ids = chunk_ids
+        logger.warning(
+            "BM25 artifact carries no chunk_ids; falling back to legal_chunks.parquet ordering."
+        )
+        bm25.chunk_ids = list(chunk_ids)
 
     logger.info("Loading Dense FAISS index from %s", settings.dense_index_path)
     dense = DenseRetriever.load_index(
@@ -302,7 +352,7 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
         max_retries=settings.groq_max_retries,
     )
 
-    return PipelineComponents(
+    pipeline = PipelineComponents(
         bm25=bm25,
         dense=dense,
         reranker=reranker,
@@ -310,6 +360,17 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
         generator=generator,
         environment="production",
     )
+
+    # Fail closed at initialization if any retrieval component is not actually usable.
+    validate_pipeline_components(pipeline)
+
+    if settings.model_warmup_enabled:
+        logger.info("Warming up embedding model (%s)", settings.embedding_model_name)
+        dense.warmup()
+        logger.info("Warming up cross-encoder reranker (%s)", settings.reranker_model_name)
+        reranker.warmup()
+
+    return pipeline
 
 
 # ---------------------------------------------------------------------------
@@ -394,8 +455,9 @@ def check_readiness(settings: Optional[Settings] = None) -> Tuple[bool, str]:
 
     try:
         pipeline = get_pipeline(settings)
+        validate_pipeline_components(pipeline)
     except Exception as exc:  # noqa: BLE001 - readiness must never raise
-        logger.error("Readiness failed during pipeline initialization: %s", exc)
+        logger.error("Readiness failed during pipeline validation: %s", exc)
         return False, "Service dependencies are not initialized."
 
     if settings.is_production and pipeline.environment != "production":

@@ -148,10 +148,13 @@ from rank_bm25 import BM25Okapi
 tokenized_corpus = [re.findall(r'\w+', text.lower()) for text in chunk_texts]
 bm25 = BM25Okapi(tokenized_corpus, k1=1.5, b=0.75)
 
+# The chunk_ids must be stored in the same order as the BM25 corpus rows.
 with open("bm25.pkl", "wb") as f:
-    pickle.dump(bm25, f)
+    pickle.dump({"bm25": bm25, "chunk_ids": chunk_ids}, f)
 ```
-*Output*: `bm25.pkl` (578.8 MB).
+*Output*: `bm25.pkl` (578.8 MB). The runtime loader (`BM25Retriever.load`) accepts the
+canonical `"bm25"` key, the legacy in-repo `"model"` key, and a bare pickled `BM25Okapi`
+object (in which case `chunk_ids` are taken from `legal_chunks.parquet`).
 
 ### Step 5: Multi-GPU Dense Embedding & FAISS Indexing
 Encodes chunks using `BAAI/bge-base-en-v1.5` in shards of 5,000 chunks:
@@ -198,7 +201,7 @@ Executes greedy generation (`temperature=0`) over top-5 reranked context blocks 
 | `legal_judgments_clean.parquet` | 485.4 MB | Parquet | 100k sanitized High Court judgments |
 | `legal_chunks.parquet` | 260.7 MB | Parquet | 538,079 text chunks with CNR and index mapping |
 | `evaluation_documents.parquet` | 2.4 MB | Parquet | 500 sampled evaluation judgments |
-| `bm25.pkl` | 578.8 MB | Pickle | Serialized BM25Okapi lexical index |
+| `bm25.pkl` | 578.8 MB | Pickle | `{"bm25": BM25Okapi, "chunk_ids": [...]}` lexical index |
 | `dense.index` | 1.65 GB | FAISS | FAISS FlatIP vector index over 538k embeddings |
 | `dense_index_metadata.json` | 14.2 MB | JSON | Mapping of vector IDs to chunk IDs |
 | `emb_0000.npy`–`emb_0107.npy` | ~1.65 GB | NPY | 108 sharded embedding checkpoint files |

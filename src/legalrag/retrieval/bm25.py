@@ -2,6 +2,21 @@
 BM25 Lexical Retriever for Legal Text.
 
 Implements BM25Okapi (k1=1.5, b=0.75) with lowercased alphanumeric regex tokenization.
+
+Serialized artifact contract
+----------------------------
+Production ``bm25.pkl`` artifacts are a pickled ``dict`` of the form::
+
+    {
+        "bm25": <rank_bm25.BM25Okapi object>,    # canonical key
+        "chunk_ids": [<chunk id in BM25 corpus order>, ...],
+        "k1": 1.5,                                # optional
+        "b": 0.75,                                # optional
+    }
+
+``load()`` also accepts the legacy in-repo dict that used the key ``"model"`` instead of
+``"bm25"``, and a bare pickled ``BM25Okapi`` object (the original Kaggle notebook output),
+in which case ``chunk_ids`` must be supplied by the caller from the chunk metadata.
 """
 
 import pickle
@@ -15,6 +30,8 @@ except ImportError:
     BM25Okapi = None  # type: ignore
 
 TOKEN_REGEX = re.compile(r"\w+")
+
+MODEL_STATE_KEYS = ("bm25", "model")
 
 
 def tokenize_legal_text(text: str) -> List[str]:
@@ -55,6 +72,25 @@ class BM25Retriever:
         else:
             self.model = None
 
+    def validate(self) -> None:
+        """
+        Verifies this retriever is structurally usable for search.
+
+        Raises:
+            ValueError: if the BM25 model is missing, no chunk IDs are mapped, or the
+                number of chunk IDs does not match the BM25 corpus size.
+        """
+        if self.model is None:
+            raise ValueError("BM25 model is not loaded (model is None).")
+        if not self.chunk_ids:
+            raise ValueError("BM25 retriever has no chunk_ids loaded.")
+        corpus_size = getattr(self.model, "corpus_size", None)
+        if corpus_size is not None and int(corpus_size) != len(self.chunk_ids):
+            raise ValueError(
+                f"BM25 corpus size ({int(corpus_size)}) does not match the number of "
+                f"chunk_ids ({len(self.chunk_ids)}); the artifact is inconsistent."
+            )
+
     def search(self, query: str, top_k: int = 50) -> List[Tuple[str, float]]:
         """
         Retrieves top_k chunk IDs with their BM25 scores for a query.
@@ -74,13 +110,28 @@ class BM25Retriever:
             return []
 
         scores = self.model.get_scores(tokenized_query)
+        if len(scores) != len(self.chunk_ids):
+            raise ValueError(
+                f"BM25 score count ({len(scores)}) does not match chunk_ids "
+                f"({len(self.chunk_ids)}); the artifact is inconsistent."
+            )
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
         return [(self.chunk_ids[i], float(scores[i])) for i in top_indices]
 
     def save(self, file_path: Union[str, Path]) -> None:
-        """Serializes the BM25 model and chunk IDs to a pickle file."""
+        """
+        Serializes the BM25 model and chunk IDs to a pickle file.
+
+        The canonical ``"bm25"`` key is written alongside the legacy ``"model"`` alias so
+        the artifact stays compatible with both current and older loaders. Pickle
+        memoization stores the shared model object only once, so the file size is
+        unaffected.
+        """
+        if self.model is None:
+            raise ValueError("Cannot save a BM25Retriever with no model loaded.")
         state = {
+            "bm25": self.model,
             "model": self.model,
             "chunk_ids": self.chunk_ids,
             "k1": self.k1,
@@ -91,19 +142,38 @@ class BM25Retriever:
 
     @classmethod
     def load(cls, file_path: Union[str, Path]) -> "BM25Retriever":
-        """Loads a serialized BM25Retriever from disk."""
+        """
+        Loads a serialized BM25Retriever from disk.
+
+        Accepts the canonical production dict (``"bm25"``), the legacy in-repo dict
+        (``"model"``), and a bare pickled ``BM25Okapi`` object. A dict carrying neither
+        model key raises immediately instead of silently producing a retriever with
+        ``model=None`` (the failure mode that broke production).
+        """
         with open(file_path, "rb") as f:
             state = pickle.load(f)
 
-        # Handle raw BM25Okapi object or packaged dict
         if BM25Okapi is not None and isinstance(state, BM25Okapi):
             return cls(bm25_model=state)
-        elif isinstance(state, dict):
-            return cls(
-                chunk_ids=state.get("chunk_ids", []),
-                bm25_model=state.get("model"),
-                k1=state.get("k1", 1.5),
-                b=state.get("b", 0.75),
-            )
-        else:
+
+        if not isinstance(state, dict):
             raise TypeError(f"Unrecognized BM25 artifact format: {type(state)}")
+
+        bm25_model = None
+        for key in MODEL_STATE_KEYS:
+            if state.get(key) is not None:
+                bm25_model = state[key]
+                break
+
+        if bm25_model is None:
+            raise ValueError(
+                "BM25 artifact does not contain a serialized model under any of the "
+                f"expected keys {MODEL_STATE_KEYS}; refusing to load an unusable retriever."
+            )
+
+        return cls(
+            chunk_ids=state.get("chunk_ids", []),
+            bm25_model=bm25_model,
+            k1=state.get("k1", 1.5),
+            b=state.get("b", 0.75),
+        )

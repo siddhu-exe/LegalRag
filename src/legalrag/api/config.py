@@ -114,6 +114,18 @@ class Settings(BaseSettings):
         description="Maximum time (seconds) allowed for startup artifact provisioning.",
     )
 
+    # Retrieval model warmup during pipeline initialization
+    model_warmup_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("model_warmup_enabled", "MODEL_WARMUP_ENABLED"),
+        description=(
+            "When true (production default) the embedding and cross-encoder weights are "
+            "loaded and validated against the artifacts during pipeline initialization, so "
+            "readiness reflects true component usability. Disable only for constrained or "
+            "fully offline environments."
+        ),
+    )
+
     @property
     def bm25_path(self) -> Path:
         """Filesystem path to the BM25 index pickle artifact."""

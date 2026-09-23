@@ -38,6 +38,8 @@ share/python-wheels/
 
 # Data & Model Artifacts
 data/
+artifacts/
+*.index
 *.parquet
 *.pkl
 *.pickle
