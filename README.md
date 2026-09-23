@@ -52,7 +52,7 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
                                        ▼
                         Strict RAG Prompt Builder &
                         LLM Generation Client Layer
-                       (Groq llama-3.3-70b-versatile @ T=0)
+                       (Groq GROQ_MODEL_NAME @ T=0)
                        [Shielded Exception Trapping]
                                        │
                                        ▼
@@ -161,18 +161,23 @@ LegalRAG/
 │       │   ├── config.py               # Pydantic v2 Settings with secret masking & port fallback
 │       │   ├── dependencies.py         # Singleton DI provider (local_stub vs production)
 │       │   ├── main.py                 # Application factory & metadata routes
-│       │   ├── routes.py               # /health and /query with error shielding & latency breakdown
+│       │   ├── provisioning.py         # Startup Hugging Face artifact provisioning
+│       │   ├── routes.py               # /health, /ready, /query: error shielding & latency breakdown
 │       │   └── schemas.py              # Pydantic validation request/response schemas
 │       ├── preprocessing/              # Text cleaner & locked LegalChunker
 │       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/                 # RAG prompt templates & Groq (llama-3.3-70b) client
+│       ├── generation/                 # RAG prompt templates & Groq generation client
 │       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
-├── tests/                              # Unit test suite (unittest / pytest compatible)
+├── tests/                              # 133 pytest tests (stubs/mocks only, no real models)
 │   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
-│   ├── test_preprocessing.py           # Cleaner and chunker tests
-│   ├── test_retrieval.py               # BM25 and fusion tests
-│   ├── test_generation.py              # Prompt builder and citation extractor tests
-│   └── test_evaluation.py              # Evidence matching and metrics tests
+│   ├── test_api_endpoints.py           # /health, /ready, /query status codes & failure modes
+│   ├── test_artifact_contracts.py      # BM25/dense artifact serialization contract regressions
+│   ├── test_retrieval.py               # BM25, dense, and RRF fusion tests
+│   ├── test_retrieval_pipeline_integration.py  # BM25->Dense->RRF->CrossEncoder (stub) cascade
+│   ├── test_cleaner.py / test_chunker.py       # Preprocessing tests
+│   ├── test_prompts.py / test_generation_client.py  # Prompts, citations, Groq client
+│   ├── test_evaluation.py              # Evidence matching and metrics tests
+│   └── test_download_artifacts.py      # Hugging Face artifact provisioning tests
 ├── scripts/                            # Standalone collection, profiling, and helper scripts
 │   ├── download_artifacts.py           # HF Hub artifact downloader for production deployment
 │   ├── download_subset.py              # First-pass 5k sample collector
@@ -225,18 +230,19 @@ uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 - Readiness Probe: `http://localhost:7860/ready`
 
 #### Mode B: Production Serving (`production` mode)
-Executes the full 538k-chunk retrieval cascade with Groq LLaMA 3.3 70B generation.
+Executes the full 538k-chunk retrieval cascade with Groq generation (`GROQ_MODEL_NAME`).
 Production containers download missing artifacts (`bm25.pkl`, `dense.index`,
 `legal_chunks.parquet`) from Hugging Face Hub automatically at startup and never fall back
 to stub responses:
 ```bash
 # 1. (Optional) Pre-download frozen runtime artifacts from Hugging Face Hub
-python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+python scripts/download_artifacts.py --repo-id siddhu23/LegalRag_Dataset --target-dir artifacts
 
 # 2. Configure production environment (HF_REPO_ID required for startup provisioning)
 export ENVIRONMENT=production
 export GROQ_API_KEY="your-groq-api-key"
-export HF_REPO_ID="<hf-username>/<repo-name>"
+export GROQ_MODEL_NAME="qwen/qwen3.8-27b"  # must be a model ID currently served by Groq
+export HF_REPO_ID="siddhu23/LegalRag_Dataset"
 # Optional: set MODEL_WARMUP_ENABLED=false to skip loading embedding/reranker weights at
 # startup (default true, which makes /ready reflect true model usability).
 export HF_TOKEN="your-huggingface-token"   # only for private repositories
@@ -253,16 +259,17 @@ docker build -t legalrag-api .
 docker run -p 7860:7860 \
     -e ENVIRONMENT=production \
     -e GROQ_API_KEY="your-key" \
-    -e HF_REPO_ID="<hf-username>/<repo-name>" \
+    -e GROQ_MODEL_NAME="qwen/qwen3.8-27b" \
+    -e HF_REPO_ID="siddhu23/LegalRag_Dataset" \
     legalrag-api
 ```
 
 ### 3. Running Tests
 ```bash
-# Run all unit and integration tests (uses local stub pipeline)
-python -m unittest discover -s tests -v
-# Or with pytest
-pytest tests/ -v
+# Run all 133 unit and integration tests (local stub pipeline only — no models, no network)
+pytest -q
+# Deterministic across hash seeds; the suite is also runnable per-file in isolation
+PYTHONHASHSEED=42 pytest -q
 ```
 
 ### 4. Inspecting Data & Checkpoints
@@ -276,6 +283,43 @@ python scripts/analyze_courts.py
 
 ### 5. Running the Pipeline
 Open `Notebooks/legalrag-100k-final.ipynb` in a Jupyter / Kaggle environment (with 2 × Tesla T4 GPUs) to execute the end-to-end ingestion, indexing, retrieval benchmarking, and judge evaluation. See [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) for step-by-step guidance.
+
+### 6. Production Artifact Verification & Measured Latency
+The three production artifacts are large (≈2.5 GB combined) and are **not** committed or baked
+into the image (see `.gitignore` / `.dockerignore`); they are provisioned from the Hugging Face
+repository `siddhu23/LegalRag_Dataset` at startup, or mounted/copied into `artifacts/` manually.
+Validate a local copy before deploying:
+```bash
+# BM25: loads through the production loader (accepts the canonical {"bm25": ..., "chunk_ids": [...]} dict)
+PYTHONPATH=src python -c "from legalrag.retrieval.bm25 import BM25Retriever; r = BM25Retriever.load('artifacts/bm25.pkl'); r.validate(); print(type(r.model).__name__, len(r.chunk_ids))"
+
+# Dense: FAISS vector count and dimension must match the 768-dim BGE model
+PYTHONPATH=src python -c "import faiss; i = faiss.read_index('artifacts/dense.index'); print(i.ntotal, i.d)"
+```
+
+Measured locally against the **real** 538,079-chunk artifacts (CPU-only, single process,
+mean over 6 realistic legal queries) during pre-deployment validation:
+
+| Stage | Mean latency |
+| :--- | ---: |
+| BM25 top-50 | 2,624 ms |
+| Dense (BGE-base + FAISS) top-50 | 139 ms |
+| RRF (k=60) | 0.1 ms |
+| Cross-Encoder top-5 | 1,496 ms |
+| Retrieval + rerank total | 4,258 ms |
+| Cold pipeline init (artifacts + model warmup) | ≈29.3 s |
+| Peak resident memory | ≈10.5 GB |
+
+Generation latency (Groq) is added on top of the retrieval total and is reported per request as
+`generate_ms`. The original multi-GPU benchmark timings are in
+[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
+
+> **Troubleshooting — `POST /query` returns 502:** a sanitized 502 always means the generation
+> provider call failed. A 404 from Groq (`model_not_found`) means `GROQ_MODEL_NAME` is not a
+> model Groq currently serves (for example the decommissioned `llama-3.3-70b-versatile`).
+> Check the live list with
+> `curl https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY"` and set
+> a valid `GROQ_MODEL_NAME`. Retrieval failures surface as 500 and unready service as 503.
 
 ---
 
@@ -298,7 +342,7 @@ For comprehensive deep dives into each subsystem, refer to the documentation sui
 - [x] **497-Question Evidence-Grounded Benchmark & Multi-Criteria LLM Judge**
 - [x] **FastAPI Backend Service (`src/legalrag/api/`)**: Dual-mode (`local_stub` / `production`), singleton DI, input validation, and latency breakdown
 - [x] **Production Exception Shielding & LLMOps**: Sanitized error states, rate limit handling, and hallucinated citation filtering
-- [x] **Groq LLaMA 3.3 70B Generation Integration** (`llama-3.3-70b-versatile` via official `groq` SDK)
+- [x] **Groq Generation Integration** (official `groq` SDK; model selected by `GROQ_MODEL_NAME`, default `qwen/qwen3.8-27b`)
 - [x] **Docker Packaging for Hugging Face Spaces** (Port 7860, UID 1000 non-root user)
 - [ ] **Streamlit / Web UI**: Query interface with interactive citation verification, court filtering, and chunk highlight graphs
 - [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments

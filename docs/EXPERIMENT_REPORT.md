@@ -159,7 +159,7 @@ Each candidate underwent automated evidence validation (`find_gold_chunks`):
 $$\text{Judgment Recall@K} = \frac{1}{|Q|} \sum_{q \in Q} \mathbb{I}\left( \text{CNR}(q) \cap \{\text{CNR}(c) \mid c \in \text{TopK}(q)\} \neq \emptyset \right)$$
 
 ### Downstream Generation Evaluation
-RAG generation utilized top-5 reranked context blocks routed via OmniRoute to the configured LLM at `temperature=0`. Evaluation was conducted by an independent LLM judge assessing:
+RAG generation utilized top-5 reranked context blocks routed via OmniRoute (the OpenAI-compatible routing layer used during experimentation) to the configured LLM at `temperature=0`. Evaluation was conducted by an independent LLM judge assessing:
 1. **Answer Relevance (1–4)**: Semantic alignment and completeness relative to the question.
 2. **Faithfulness (1–4)**: Absence of ungrounded factual claims.
 3. **Citation Correctness (1–4)**: Syntactic validity and accuracy of cited chunk IDs.
@@ -268,6 +268,24 @@ Reasoning (149)           86                 52               4                4
 - **Random Seed**: Fixed at `seed=42` across all streaming, sampling, and splitting operations.
 - **Deterministic Checkpoints**: Every stage outputs verified Parquet/JSON artifacts (`legal_judgments_clean.parquet`, `legal_chunks.parquet`, `bm25.pkl`, `dense.index`, `gold_eval.json`, `rag_results.json`, `rag_evaluation.json`).
 - **Hardware Profile**: Verified on 2 × NVIDIA Tesla T4 GPUs with 31.3 GB Host RAM.
+
+### Serving-Time Artifact Contracts
+
+The frozen artifacts are also consumed at serving time by the FastAPI backend, so their
+serialization contracts are part of the reproducibility surface:
+
+- `bm25.pkl` is the pickled dict `{"bm25": <BM25Okapi>, "chunk_ids": [...]}` with `chunk_ids`
+  in BM25 corpus order; the runtime loader accepts this canonical form, the legacy `"model"`
+  key, and a bare `BM25Okapi`, and fails closed on anything else.
+- `dense.index` is `faiss.IndexFlatIP` (`ntotal = 538,079`, `d = 768`) over L2-normalized
+  `BAAI/bge-base-en-v1.5` embeddings. Queries are encoded with the instruction recorded in
+  `dense_index_metadata.json` (`"Represent this sentence for searching relevant passages: "`).
+- `legal_chunks.parquet` row order is the ID mapping for both retrievers; every retrieved
+  chunk ID must resolve against its `chunk_id` column.
+
+Measured serving-time latency with the real artifacts (CPU-only, single process, mean of 6
+queries): BM25 top-50 2,624 ms, dense top-50 139 ms, RRF 0.1 ms, cross-encoder top-5
+1,496 ms (total 4,258 ms); cold pipeline initialization ≈29.3 s; peak memory ≈10.5 GB.
 
 ---
 

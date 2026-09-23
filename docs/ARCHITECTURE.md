@@ -13,7 +13,7 @@ LegalRAG is a specialized legal information retrieval and question-answering arc
 │                          1. INGESTION & DATA CORPUS                         │
 │                                                                             │
 │  Hugging Face Dataset ────────► Deterministic Stream ──────► Corpus Cleaner  │
-│  (overthelex/high_courts)       (Shuffle buffer 10k, seed 42) (762 sanitized)│
+│  (overthelex/high_courts)       (Shuffle buffer 50k, seed 42) (762 sanitized)│
 │                                                                      │      │
 │                                                          100,000 Judgments  │
 │                                                     (legal_judgments_clean) │
@@ -64,7 +64,7 @@ LegalRAG is a specialized legal information retrieval and question-answering arc
 │   {passage_text}                                                            │
 │                                      │                                      │
 │                                      ▼                                      │
-│            LLM Generation Layer (Groq - llama-3.3-70b-versatile)                    │
+│            LLM Generation Layer (Groq - GROQ_MODEL_NAME)                    │
 │            Grounding Instructions, Strict Chunk Attribution, temp=0         │
 │            Strict Error Shielding (prevents API error leak into answers)    │
 │                                      │                                      │
@@ -88,7 +88,7 @@ LegalRAG is a specialized legal information retrieval and question-answering arc
 
 ### 1. Ingestion & Preprocessing Subsystem
 - **Source**: Hugging Face `overthelex/indian-court-decisions` (configuration: `high_courts`, split: `train`).
-- **Streaming Pipeline**: To ingest 100,000 records without exceeding local memory or disk buffers, data is streamed with `streaming=True` and a deterministic shuffle buffer (`buffer_size=10,000`, `seed=42`).
+- **Streaming Pipeline**: To ingest 100,000 records without exceeding local memory or disk buffers, data is streamed with `streaming=True` and a deterministic shuffle buffer (`buffer_size=50,000`, `seed=42`).
 - **Deduplication Engine**: An in-memory hash set tracks SHA-256 digests of document texts to guarantee zero duplicate judgments.
 - **Corpus Sanitization**: Documents are inspected for control character contamination. Non-printable ASCII control characters `[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]` are stripped regex-wise while retaining valid structural elements, line breaks, section symbols, and quotes. Whitespace sequences are normalized.
 
@@ -116,6 +116,10 @@ Query ──► [ Dense (Top 50) ] ─┘
 
 #### Tier 1B: Dense Vector Retriever
 - **Embedding Model**: `BAAI/bge-base-en-v1.5` (768 dimensions, FP16 inference, normalized).
+- **Query Instruction**: queries are prefixed with
+  `"Represent this sentence for searching relevant passages: "` before encoding. This is the
+  exact instruction recorded in `dense_index_metadata.json` when `dense.index` was built, so the
+  serving-time query distribution matches index construction. Corpus passages are never prefixed.
 - **Index Architecture**: `faiss.IndexFlatIP` (Cosine similarity over L2-normalized vectors).
 - **Execution**: Distributed across 2 × Tesla T4 GPUs with batch size 64 into 108 `.npy` embedding shards before index compilation.
 - **Role**: Captures semantic synonyms, general legal concepts, and paraphrased factual narratives.
@@ -148,7 +152,9 @@ The system prompt strictly instructs the generation model to:
 
 ### 5. LLM Generation Layer
 - **Interface**: Groq Cloud API via official `groq` SDK (`LegalGenerationClient`).
-- **Model**: `llama-3.3-70b-versatile` (configurable via `GROQ_MODEL_NAME`).
+- **Model**: configured via `GROQ_MODEL_NAME` (default `qwen/qwen3.8-27b`). The ID must be a model
+  Groq currently serves — verify with `GET https://api.groq.com/openai/v1/models`. A stale ID
+  makes Groq return 404 (`model_not_found`), which the API correctly surfaces as HTTP 502.
 - **Generation Parameters**: `temperature=0.0` (greedy decoding for reproducibility and factual consistency), `max_tokens=1024`.
 - **Error Shielding & Hardening**: The client enforces an explicit per-request timeout and bounded exponential backoff for transient provider failures (rate limits, connection errors, 5xx). Provider failures are converted into a controlled `GenerationError` that the API surfaces as HTTP 502 with a sanitized body. API keys are never logged or returned.
 
@@ -173,14 +179,14 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
             - Static mock reranker              - FAISS IndexFlatIP (~1.65 GB)
             - Deterministic mock LLM            - BGE-base SentenceTransformer
             - Zero memory / GPU overhead        - ms-marco CrossEncoder
-                                                - Groq LLaMA 3.3 70B SDK
+                                                - Groq Generation SDK
                                          │
                                          ▼
                                  Execution Cascade
                     1. Hybrid Retrieval & RRF Fusion (Top-50)
                     2. Neural Cross-Encoder Reranking (Top-5)
                     3. Context Prompt Construction
-                    4. Grounded Generation (Groq LLaMA 3.3 70B)
+                    4. Grounded Generation (Groq, GROQ_MODEL_NAME)
                     5. Citation Verification & Filtering
                     6. High-Resolution Latency Tracking
                                          │
@@ -189,7 +195,7 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
 ```
 
 #### A. Dual Runtime Environments
-- **`production` (fail-closed default)**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`), the BGE embedding model, and the Cross-Encoder reranker, and connects to the Groq API via `GROQ_API_KEY`. Production never falls back to stub components; if artifacts or configuration are unavailable the service reports NOT READY (HTTP 503).
+- **`production` (fail-closed default)**: Loads precomputed artifacts (`bm25.pkl`, `dense.index`, `legal_chunks.parquet`), the BGE embedding model, and the Cross-Encoder reranker, and connects to the Groq API via `GROQ_API_KEY`. Production never falls back to stub components; if artifacts or configuration are unavailable the service reports NOT READY (HTTP 503). Initialization structurally validates every retrieval component (BM25 model + corpus length, FAISS `ntotal`/`d` against the chunk-ID mapping, reranker model) and, unless `MODEL_WARMUP_ENABLED=false`, warms up the embedding and cross-encoder weights so `/ready` reflects true usability rather than mere non-nullness.
 - **`local_stub` (explicit opt-in)**: Lightweight deterministic mock pipeline tailored for resource-constrained development laptops and tests (< 100 MB RAM). Selected only via an explicit `ENVIRONMENT=local_stub` setting.
 
 #### B. API Endpoints
@@ -315,3 +321,55 @@ The LegalRAG service is built with FastAPI and Pydantic v2, architected around s
   "judge_feedback": "STRING"
 }
 ```
+
+### 6. `bm25.pkl` (runtime artifact)
+
+Pickled `dict` produced by the final experiment notebook and consumed by `BM25Retriever.load()`:
+
+```python
+{
+    "bm25": <rank_bm25.BM25Okapi>,   # canonical key
+    "chunk_ids": ["<cnr>_chunk_<i>", ...],  # same order as the BM25 corpus rows
+}
+```
+
+- `chunk_ids[i]` must correspond to corpus row `i` used to construct the `BM25Okapi` object.
+- `BM25Retriever.load()` also accepts the legacy in-repo `"model"` key and a bare pickled
+  `BM25Okapi` object. A dict containing neither key raises immediately (fail closed) instead of
+  producing a retriever with `model=None` — the exact production failure this contract guards.
+- `BM25Retriever.save()` writes the canonical `"bm25"` key plus the `"model"` alias (pickle
+  memoization deduplicates the shared object, so no file-size penalty).
+- Regression coverage: `tests/test_artifact_contracts.py`.
+
+### 7. `dense.index` + `dense_index_metadata.json` (runtime artifacts)
+
+- `dense.index`: `faiss.IndexFlatIP`, `index.ntotal == 538,079`, `index.d == 768`, built over
+  L2-normalized `BAAI/bge-base-en-v1.5` embeddings. Vector row `i` maps to
+  `legal_chunks.parquet` row `i` (chunk IDs are attached from the parquet, and
+  `DenseRetriever.validate()` / `load_index()` reject any `ntotal != len(chunk_ids)` mismatch).
+- `dense_index_metadata.json`: `{model, embedding_dimension, num_chunks, shard_size, metric,
+  normalized_embeddings, query_instruction, corpus_judgments}`. The `query_instruction` field is
+  the authoritative source for the BGE query prefix used at serving time.
+
+---
+
+## Production Serving Validation (real artifacts)
+
+Measured locally on the real 538,079-chunk artifacts (CPU-only, single process, mean of 6
+realistic Indian-law queries) during the pre-deployment validation. These are serving-time
+numbers, not the Kaggle benchmark numbers:
+
+| Stage | Mean latency |
+| :--- | ---: |
+| BM25 top-50 | 2,624 ms |
+| Dense (BGE-base + FAISS) top-50 | 139 ms |
+| RRF (k=60) | 0.1 ms |
+| Cross-Encoder top-5 | 1,496 ms |
+| Retrieval + rerank total | 4,258 ms |
+| Cold pipeline init (`load_production_pipeline` + warmup) | ≈29.3 s |
+| Peak resident memory | ≈10.5 GB |
+
+Verified end-to-end with the real artifacts: `check_readiness()` → `(True, "ready")`,
+`GET /health` → 200, `GET /ready` → 200, and `POST /query` returns a grounded response with
+resolvable citations when generation is stubbed. Generation latency is additional and reported
+per request as `generate_ms`.

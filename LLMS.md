@@ -18,7 +18,7 @@
 
 ## 2. Ingestion & Preprocessing
 
-- **Streaming & Deduplication**: Streamed with `datasets` using `streaming=True`, `buffer_size=10000`, `seed=42`. Deduplication enforced via in-memory SHA-256 text hashes.
+- **Streaming & Deduplication**: Streamed with `datasets` using `streaming=True`, `buffer_size=50000`, `seed=42`. Deduplication enforced via in-memory SHA-256 text hashes.
 - **Corpus Sanitization**: Profiling identified 762 corrupted documents (0.76%) containing non-printable ASCII control characters. Cleaned via regex `[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]` while preserving paragraphs and legal punctuation.
 - **Chunking Parameters**:
   - Splitter: `RecursiveCharacterTextSplitter` (separators: `["\n\n", "\n", " ", ""]`)
@@ -34,9 +34,15 @@
 1. **BM25 Lexical Retriever**:
    - Implementation: `rank-bm25` (`BM25Okapi`, $k_1=1.5, b=0.75$).
    - Tokenization: Lowercased alphanumeric regex `\w+`.
-   - Artifact: `bm25.pkl` (578.8 MB).
+   - Artifact: `bm25.pkl` (578.8 MB) — pickled dict `{"bm25": <BM25Okapi>, "chunk_ids": [...]}`.
+     `BM25Retriever.load()` accepts the canonical `"bm25"` key, the legacy in-repo `"model"`
+     key, and a bare pickled `BM25Okapi` object; it fails closed (rather than loading a
+     `model=None` retriever) if none are present.
 2. **Dense Vector Retriever**:
    - Embedding Model: `BAAI/bge-base-en-v1.5` (768 dimensions, normalized).
+   - Query Instruction: queries are prefixed with
+     `"Represent this sentence for searching relevant passages: "` (the prefix recorded in
+     `dense_index_metadata.json` when the index was built). Passages are never prefixed.
    - Index: `faiss.IndexFlatIP` (Cosine similarity over L2-normalized vectors).
    - Artifacts: 108 embedding shards (`emb_0000.npy`–`emb_0107.npy`) and `dense.index` (1.65 GB).
 3. **Hybrid Reciprocal Rank Fusion (RRF)**:
@@ -107,7 +113,7 @@
 
 - **Application Factory**: `create_app()` in `src/legalrag/api/main.py`.
 - **Runtime Dual-Mode**:
-  - `production` (fail-closed default): Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Groq (llama-3.3-70b-versatile). Missing artifacts are provisioned from Hugging Face Hub at startup; if unavailable the service stays NOT READY and never serves stubs.
+  - `production` (fail-closed default): Full pipeline loading `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, BGE embedding model, Cross-Encoder reranker, and connecting to Groq (`GROQ_MODEL_NAME`). Missing artifacts are provisioned from Hugging Face Hub (`siddhu23/LegalRag_Dataset`) at startup; if unavailable the service stays NOT READY and never serves stubs. Pipeline initialization structurally validates every retrieval component and (by default, `MODEL_WARMUP_ENABLED=true`) warms up the embedding and reranker models before `/ready` can return 200.
   - `local_stub` (explicit opt-in): Instant local development on standard laptops (< 100 MB RAM) using deterministic in-memory stubs without loading multi-gigabyte models or FAISS index files.
 - **REST Endpoints**:
   - `GET /health` -> lightweight liveness: `HealthResponse(status="ok", environment=...)` (never loads models).
@@ -118,9 +124,13 @@
   - `QueryRequest`: accepts ONLY `question: str` (min length 3, max length 4000, whitespace-stripped). Extra/server-config fields are rejected with HTTP 422.
   - `QueryResponse`: `answer`, `citations: List[Citation]`, `retrieved_chunk_ids: List[str]`, `retrieve_ms: float`, `rerank_ms: float`, `generate_ms: float`, `total_ms: float`, `status: Literal["ok", "generation_error", "retrieval_error"]`.
   - `Citation`: `chunk_id`, `cnr`, `court_code`, `decision_date`, `title`.
-- **HTTP Error Semantics**: 422 invalid request, 500 retrieval/reranking failure, 502 LLM/generation provider failure, 503 pipeline/readiness failure. Error bodies are sanitized (no keys, tokens, paths, or stack traces).
+- **HTTP Error Semantics**: 422 invalid request, 500 retrieval/reranking failure, 502 LLM/generation provider failure, 503 pipeline/readiness failure. Error bodies are sanitized (no keys, tokens, paths, or stack traces). A 502 caused by a provider 404 means `GROQ_MODEL_NAME` is not a model currently served by Groq (`/v1/models` is the source of truth).
 - **Generation & LLMOps**:
-  - Model: Groq (`llama-3.3-70b-versatile`) via official `groq` SDK (`LegalGenerationClient`).
+  - Model: Groq via official `groq` SDK (`LegalGenerationClient`), model ID from `GROQ_MODEL_NAME`
+    (default `qwen/qwen3.8-27b`; must be a model ID currently served by Groq).
+  - Hardening: explicit per-request timeout (default 30 s) and bounded retries (default 2) with
+    exponential backoff for transient/provider failures; provider failures become a sanitized
+    HTTP 502 (`GenerationError`), never a raw error string in the answer body.
   - Strict Exception Shielding: Traps all `GroqAuthenticationError`, `GroqRateLimitError`, `GroqBadRequestError`, `GroqInternalServerError`, `GroqAPIConnectionError`, `GroqAPIError`. Returns sanitized user-facing responses with `status="generation_error"` or `"retrieval_error"` while logging full traces server-side.
   - Citation Grounding Defense: Regex-extracted `[Chunk ID: ...]` citations are cross-validated against retrieved `top_chunk_ids`; hallucinated chunk IDs are filtered out before response serialization.
 - **Containerization**:
@@ -138,7 +148,7 @@
   - 4-tier retrieval benchmarking and 497-question judge evaluation.
   - Checkpointed execution in `Notebooks/legalrag-100k-final.ipynb`.
   - Production FastAPI backend (`src/legalrag/api/`) with dual runtime modes, input validation, and high-resolution latency tracking.
-  - Groq (llama-3.3-70b-versatile) generation client with strict error shielding.
+  - Groq generation client (`GROQ_MODEL_NAME`) with strict error shielding.
   - Multi-stage Docker containerization and Hub artifact download scripts for Azure Container Apps / Hugging Face Spaces.
 - **Planned Application Layer (Phase 2)**:
   - **Streamlit / Web UI**: Interactive legal query interface with citation graphs and court jurisdiction filters.
@@ -151,10 +161,11 @@
 | Filename | Purpose | Schema / Content |
 | :--- | :--- | :--- |
 | `legal_judgments_clean.parquet` | Cleaned 100k judgments | `cnr, court_code, court_name, decision_date, year, full_text, ...` |
-| `legal_chunks.parquet` | 538,079 text chunks | `chunk_id, cnr, chunk_index, text` |
+| `legal_chunks.parquet` | 538,079 text chunks | `chunk_id, cnr, court_code, decision_date, case_type, title, chunk_index, text` (0 null / 0 duplicate `chunk_id`) |
 | `evaluation_documents.parquet` | 500 sampled evaluation docs | Cleaned judgment records sampled round-robin across courts |
 | `bm25.pkl` | BM25Okapi lexical index | Pickled `dict` with `bm25` (BM25Okapi) and `chunk_ids`; legacy `model` key is also accepted |
 | `dense.index` | FAISS vector index | `faiss.IndexFlatIP` (538,079 x 768-dim normalized vectors) |
+| `dense_index_metadata.json` | Dense index provenance | `model, embedding_dimension, num_chunks, metric, normalized_embeddings, query_instruction` |
 | `gold_eval.json` | 497 validated questions | `cnr, question, reference_answer, question_type, supporting_text, gold_chunk_ids` |
 | `rag_results.json` | 497 generated answers | `cnr, question, reference_answer, generated_answer, question_type, retrieved_chunk_ids` |
 | `rag_evaluation.json` | 497 judge evaluations | `cnr, question_type, answer_relevance, faithfulness, citation_correctness, unsupported_claim_rate, hallucination, overall_score, judge_feedback` |

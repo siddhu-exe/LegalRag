@@ -89,7 +89,7 @@ Step 6: Evidence-Grounded Benchmark Generation (497 Gold Questions)
      │
 Step 7: Retrieval Evaluation (BM25, Dense, Hybrid RRF, Cross-Encoder)
      │
-Step 8: RAG Generation (LLM via OmniRoute @ temp=0)
+Step 8: RAG Generation (configured LLM @ temp=0)
      │
 Step 9: Multi-Criteria Judge Evaluation & Failure Analysis
 ```
@@ -107,7 +107,7 @@ dataset = load_dataset(
     "high_courts",
     split="train",
     streaming=True
-).shuffle(buffer_size=10000, seed=42)
+).shuffle(buffer_size=50000, seed=42)
 
 # Deduplicate by text SHA-256 and collect 100,000 records
 ```
@@ -174,6 +174,14 @@ faiss.write_index(index, "dense.index")
 ```
 *Output*: 108 `.npy` shards (~1.65 GB total) and `dense.index` (1.65 GB).
 
+The experiment encodes **queries** with the BGE retrieval instruction
+`"Represent this sentence for searching relevant passages: "`
+(`QUERY_INSTRUCTION` in `Notebooks/legalrag-100k-final.ipynb`), while corpus passages are
+encoded without any prefix. That instruction is persisted in `dense_index_metadata.json`
+alongside `model`, `embedding_dimension`, and `num_chunks`, and is the authoritative contract
+the serving `DenseRetriever` must satisfy at query time. The index itself must not be rebuilt to
+change query formatting.
+
 ### Step 6: Benchmark Construction & Evidence Grounding
 Generates 500 candidate questions across 5 question types and filters via `find_gold_chunks`:
 ```python
@@ -189,7 +197,7 @@ Evaluates Judgment Recall@K ($K \in \{1, 3, 5, 10, 25, 50\}$) across BM25, Dense
 *Outputs*: `bm25_top50.json`, `dense_top50.json`, `hybrid_top50.json`, `reranked_top50.json`.
 
 ### Step 8 & 9: RAG Generation & Multi-Criteria Evaluation
-Executes greedy generation (`temperature=0`) over top-5 reranked context blocks via OmniRoute and evaluates results with an independent LLM judge.
+Executes greedy generation (`temperature=0`) over top-5 reranked context blocks and evaluates results with an independent LLM judge. The frozen 497-answer benchmark was produced through the OpenAI-compatible routing layer used during experimentation (`OMNIROUTE_*` config in the notebook); the deployed service now calls the **official `groq` SDK** (`LegalGenerationClient`) with the model selected by `GROQ_MODEL_NAME`.
 *Outputs*: `rag_results.json`, `rag_evaluation.json`, `rag_metrics.json`.
 
 ---
@@ -203,7 +211,7 @@ Executes greedy generation (`temperature=0`) over top-5 reranked context blocks 
 | `evaluation_documents.parquet` | 2.4 MB | Parquet | 500 sampled evaluation judgments |
 | `bm25.pkl` | 578.8 MB | Pickle | `{"bm25": BM25Okapi, "chunk_ids": [...]}` lexical index |
 | `dense.index` | 1.65 GB | FAISS | FAISS FlatIP vector index over 538k embeddings |
-| `dense_index_metadata.json` | 14.2 MB | JSON | Mapping of vector IDs to chunk IDs |
+| `dense_index_metadata.json` | < 1 KB | JSON | Dense index provenance: `model`, `embedding_dimension`, `num_chunks`, `shard_size`, `metric`, `normalized_embeddings`, `query_instruction`, `corpus_judgments` |
 | `emb_0000.npy`–`emb_0107.npy` | ~1.65 GB | NPY | 108 sharded embedding checkpoint files |
 | `eval_candidates.json` | 680 KB | JSON | 500 raw candidate evaluation questions |
 | `gold_eval.json` | 674 KB | JSON | 497 validated gold benchmark questions |
@@ -256,22 +264,30 @@ If a GPU execution session disconnects during dense embedding, the script resume
 To verify pipeline integrity after execution:
 
 ```bash
-# 1. Verify chunk count
-python3 -c "import pandas as pd; df = pd.read_parquet('legal_chunks.parquet'); assert len(df) == 538079, f'Expected 538079, got {len(df)}'; print('Chunks OK: 538,079')"
+# 1. Verify chunk count, chunk_id integrity, and ID resolvability
+python3 -c "import pandas as pd; df = pd.read_parquet('legal_chunks.parquet'); assert len(df) == 538079, f'Expected 538079, got {len(df)}'; assert df['chunk_id'].notna().all(); assert df['chunk_id'].is_unique; print('Chunks OK: 538,079 rows, unique non-null chunk_id')"
 
-# 2. Verify benchmark count
+# 2. Verify the BM25 artifact loads through the production loader (canonical {"bm25", "chunk_ids"} dict)
+PYTHONPATH=src python3 -c "from legalrag.retrieval.bm25 import BM25Retriever; r = BM25Retriever.load('artifacts/bm25.pkl'); r.validate(); assert len(r.chunk_ids) == 538079; print('BM25 OK:', type(r.model).__name__, len(r.chunk_ids))"
+
+# 3. Verify benchmark count
 python3 -c "import json; data = json.load(open('gold_eval.json')); assert len(data) == 497, f'Expected 497, got {len(data)}'; print('Gold benchmark OK: 497')"
 
-# 3. Verify FAISS index vector count
-python3 -c "import faiss; index = faiss.read_index('dense.index'); assert index.ntotal == 538079, f'Expected 538079, got {index.ntotal}'; print('FAISS Index OK: 538,079 vectors')"
+# 4. Verify FAISS index vector count and dimension
+python3 -c "import faiss; index = faiss.read_index('artifacts/dense.index'); assert index.ntotal == 538079, f'Expected 538079, got {index.ntotal}'; assert index.d == 768, f'Expected dim 768, got {index.d}'; print('FAISS Index OK: 538,079 vectors @ 768 dims')"
 ```
+
+`legal_chunks.parquet` row order is the mapping contract for both retrievers: BM25
+`chunk_ids[i]` and FAISS vector row `i` both refer to parquet row `i`. Dense validation
+(`DenseRetriever.validate()` / `load_index()`) rejects any index whose `ntotal` does not equal
+the number of chunk IDs, so a silent misalignment cannot reach readiness.
 
 ---
 
 ## 8. Running the FastAPI Backend Service
 
 The LegalRAG service supports dual runtime modes for zero-overhead local development vs. full production scale:
-1. **`production` (fail-closed default)**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Groq (`llama-3.3-70b-versatile`). If required artifacts or configuration are unavailable, the service reports NOT READY (HTTP 503) and never serves stub responses.
+1. **`production` (fail-closed default)**: Full retrieval cascade across 538,079 chunks using BM25, FAISS IndexFlatIP, Cross-Encoder, and Groq (`GROQ_MODEL_NAME`; must be a model ID currently served by Groq). Every retrieval component is structurally validated and warmed up before readiness succeeds. If required artifacts or configuration are unavailable, the service reports NOT READY (HTTP 503) and never serves stub responses.
 2. **`local_stub` (explicit opt-in)**: Lightweight deterministic mock retrieval and generation for development and resource-constrained environments (e.g. 6 GB RAM laptop, < 100 MB RAM).
 
 ### A. Local Development (`local_stub` mode)
@@ -294,12 +310,13 @@ startup using `scripts/download_artifacts.py`; existing artifacts are reused. Yo
 provision them ahead of time manually:
 ```bash
 # 1. (Optional) Pre-download artifacts from Hugging Face Hub
-python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+python scripts/download_artifacts.py --repo-id siddhu23/LegalRag_Dataset --target-dir artifacts
 
 # 2. Set environment variables (HF_REPO_ID is required for startup provisioning)
 export ENVIRONMENT=production
 export GROQ_API_KEY="your-groq-api-key"
-export HF_REPO_ID="<hf-username>/<repo-name>"
+export GROQ_MODEL_NAME="qwen/qwen3.8-27b"   # must currently be served by Groq
+export HF_REPO_ID="siddhu23/LegalRag_Dataset"
 export HF_TOKEN="your-huggingface-token"   # only for private repositories
 export API_PORT=7860
 
@@ -317,7 +334,8 @@ docker build -t legalrag-api .
 docker run -p 7860:7860 \
     -e ENVIRONMENT=production \
     -e GROQ_API_KEY="your-groq-api-key" \
-    -e HF_REPO_ID="<hf-username>/<repo-name>" \
+    -e GROQ_MODEL_NAME="qwen/qwen3.8-27b" \
+    -e HF_REPO_ID="siddhu23/LegalRag_Dataset" \
     -e HF_TOKEN="your-huggingface-token" \
     legalrag-api
 ```
@@ -328,8 +346,28 @@ stub responses.
 
 ### D. Running Unit & Integration Tests
 ```bash
-# Run all unit tests (retrieval, preprocessing, schemas, config, and API endpoints via local stub)
-python -m unittest discover -s tests -v
-# Or using pytest
-pytest tests/ -v
+# Run all 133 unit & integration tests (retrieval, preprocessing, generation, evaluation, API)
+# Tests use stubs/mocks only: no model downloads, no FAISS index, no network, no paid APIs.
+pytest -q
 ```
+
+### E. Measured Production Serving Latency (real artifacts)
+
+Measured locally with the real 538,079-chunk artifacts (CPU-only, single process, mean of 6
+realistic legal queries). These are serving-time numbers and are separate from the Kaggle
+multi-GPU benchmark timings in §6:
+
+| Stage | Mean latency |
+| :--- | ---: |
+| BM25 top-50 | 2,624 ms |
+| Dense (BGE-base + FAISS) top-50 | 139 ms |
+| RRF (k=60) | 0.1 ms |
+| Cross-Encoder top-5 | 1,496 ms |
+| Retrieval + rerank total | 4,258 ms |
+| Cold pipeline init (artifacts + model warmup) | ≈29.3 s |
+| Peak resident memory | ≈10.5 GB |
+
+Verified with the real artifacts: `check_readiness()` → `(True, "ready")`, `GET /health` → 200,
+`GET /ready` → 200, and `POST /query` completes real retrieval (BM25 → Dense → RRF →
+Cross-Encoder) with resolvable citations when the generator is stubbed/mocked. Groq generation
+latency is additional and reported per request as `generate_ms`.

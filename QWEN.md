@@ -4,15 +4,16 @@ Production-hardened, hybrid-retrieval RAG (Retrieval-Augmented Generation) syste
 
 ## Project Overview
 
-- **Source data**: Hugging Face dataset `overthelex/indian-court-decisions`, config `high_courts`, split `train`, consumed in **streaming mode** (seed 42, shuffle buffer 10,000).
+- **Source data**: Hugging Face dataset `overthelex/indian-court-decisions`, config `high_courts`, split `train`, consumed in **streaming mode** (seed 42, shuffle buffer 50,000).
 - **Scale**: 100,000 High Court decisions across 24 jurisdictions, cleaned and partitioned into **538,079 chunks**.
 - **Multi-Stage Retrieval Cascade**:
   1. **BM25 Lexical Retrieval**: `BM25Okapi` ($k_1=1.5, b=0.75$) with regex tokenization (top-50 pool).
-  2. **Dense Vector Retrieval**: `BAAI/bge-base-en-v1.5` (768-dim, normalized) + `faiss.IndexFlatIP` (top-50 pool).
+  2. **Dense Vector Retrieval**: `BAAI/bge-base-en-v1.5` (768-dim, normalized) + `faiss.IndexFlatIP` (top-50 pool). Queries are prefixed with the BGE instruction `"Represent this sentence for searching relevant passages: "` (recorded in `dense_index_metadata.json`); passages are not prefixed.
   3. **Reciprocal Rank Fusion (RRF)**: $k=60$, combining BM25 and Dense into top-50 candidate pool.
   4. **Neural Cross-Encoder Reranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` selecting top-5 RAG context blocks.
 - **Generation & LLMOps**:
-  - Groq (`llama-3.3-70b-versatile`) via official `groq` SDK at `temperature=0.0`.
+  - Groq via official `groq` SDK at `temperature=0.0`; model ID from `GROQ_MODEL_NAME`
+    (default `qwen/qwen3.8-27b`, must be a model currently served by Groq).
   - Strict exception shielding preventing raw API/rate-limit errors from leaking into answer bodies.
   - Regex citation validation (`[Chunk ID: ...]`) cross-referenced strictly against retrieved context chunks.
 - **FastAPI Backend (`src/legalrag/api/`)**:
@@ -41,18 +42,23 @@ LegalRAG/
 │       │   ├── config.py               # Pydantic v2 Settings with secret masking & port fallback
 │       │   ├── dependencies.py         # Singleton DI provider (local_stub vs production)
 │       │   ├── main.py                 # Application factory & metadata routes
-│       │   ├── routes.py               # /health and /query with error shielding & latency breakdown
+│       │   ├── provisioning.py         # Startup Hugging Face artifact provisioning
+│       │   ├── routes.py               # /health, /ready, /query: error shielding & latency breakdown
 │       │   └── schemas.py              # Pydantic validation request/response schemas
 │       ├── preprocessing/              # Text cleaner & locked LegalChunker
 │       ├── retrieval/                  # BM25, Dense FAISS, RRF fusion, CrossEncoder reranking
-│       ├── generation/                 # RAG prompt templates & Groq (llama-3.3-70b) client
+│       ├── generation/                 # RAG prompt templates & Groq generation client
 │       └── evaluation/                 # Gold evidence matching & failure taxonomy metrics
-├── tests/                              # Unit test suite (unittest / pytest compatible)
+├── tests/                              # 133 pytest tests (stubs/mocks only, no real models)
 │   ├── test_api.py                     # FastAPI endpoint, validation, and error shielding tests
-│   ├── test_preprocessing.py           # Cleaner and chunker tests
-│   ├── test_retrieval.py               # BM25 and fusion tests
-│   ├── test_generation.py              # Prompt builder and citation extractor tests
-│   └── test_evaluation.py              # Evidence matching and metrics tests
+│   ├── test_api_endpoints.py           # /health, /ready, /query status codes & failure modes
+│   ├── test_artifact_contracts.py      # BM25/dense artifact serialization contract regressions
+│   ├── test_retrieval.py               # BM25, dense, and RRF fusion tests
+│   ├── test_retrieval_pipeline_integration.py  # BM25->Dense->RRF->CrossEncoder (stub) cascade
+│   ├── test_cleaner.py / test_chunker.py       # Preprocessing tests
+│   ├── test_prompts.py / test_generation_client.py  # Prompts, citations, Groq client
+│   ├── test_evaluation.py              # Evidence matching and metrics tests
+│   └── test_download_artifacts.py      # Hugging Face artifact provisioning tests
 ├── scripts/                            # Standalone collection, profiling, and helper scripts
 │   ├── download_artifacts.py           # HF Hub artifact downloader for production deployment
 │   ├── download_subset.py              # First-pass 5k sample collector
@@ -85,13 +91,14 @@ LegalRAG/
      ```
 2. **`production`**:
    - Full 538k-chunk pipeline with `bm25.pkl`, `dense.index`, `legal_chunks.parquet`, and Groq LLM.
-   - Missing artifacts are downloaded from Hugging Face Hub at startup; the service reports NOT READY (HTTP 503) if provisioning or initialization fails.
+   - Missing artifacts are downloaded from Hugging Face Hub (`siddhu23/LegalRag_Dataset`) at startup; the service reports NOT READY (HTTP 503) if provisioning or initialization fails. Every retrieval component is structurally validated and warmed up before `/ready` returns 200.
    - Run on Azure Container Apps, Hugging Face Spaces, or GPU cloud instance:
      ```bash
-     python scripts/download_artifacts.py --repo-id <hf-username>/<repo-name> --target-dir artifacts
+     python scripts/download_artifacts.py --repo-id siddhu23/LegalRag_Dataset --target-dir artifacts
      export ENVIRONMENT=production
      export GROQ_API_KEY="your-groq-api-key"
-     export HF_REPO_ID="<hf-username>/<repo-name>"
+     export GROQ_MODEL_NAME="qwen/qwen3.8-27b"   # must currently be served by Groq
+     export HF_REPO_ID="siddhu23/LegalRag_Dataset"
      export API_PORT=7860
      uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
      ```
@@ -114,8 +121,16 @@ LegalRAG/
 ## Testing
 
 ```bash
-# Run unit & integration test suite (runs in local_stub mode)
-python -m unittest discover -s tests -v
-# Or via pytest
-pytest tests/ -v
+# Run all 133 unit & integration tests (local_stub mode; no models, no network)
+pytest -q
 ```
+
+## Production validation (real 538,079-chunk artifacts)
+
+Verified locally against the real `bm25.pkl`, `dense.index`, and `legal_chunks.parquet`
+(CPU-only, single process): `BM25Retriever.load()` returns a real `BM25Okapi`;
+`check_readiness()` -> `(True, "ready")`; `POST /query` completes real BM25 top-50 +
+dense top-50 -> RRF k=60 -> CrossEncoder top-5 retrieval. Mean per-stage latency:
+BM25 ≈2,624 ms, dense ≈139 ms, RRF ≈0.1 ms, CrossEncoder ≈1,496 ms (retrieval+rerank
+≈4,258 ms); cold pipeline init ≈29.3 s; peak RSS ≈10.5 GB. Generation is not exercised
+without a Groq key.

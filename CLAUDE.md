@@ -28,9 +28,9 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
       generation/, evaluation/ — with pyproject.toml, unit tests, atomic
       conventional commits
 - [x] Fix OmniRoute error-leak bug: Migrated generation to official Groq SDK
-      (`groq`, model `llama-3.3-70b-versatile`) with typed `GenerationResult` and
-      strict exception shielding to prevent raw API error strings from leaking into
-      answer fields or judge evaluations
+      (`groq`, model selected by `GROQ_MODEL_NAME`, default `qwen/qwen3.8-27b`) with typed
+      `GenerationResult` and strict exception shielding to prevent raw API error strings
+      from leaking into answer fields or judge evaluations
 - [x] Add per-stage latency logging: `retrieve_ms`, `rerank_ms`, `generate_ms`,
       and `total_ms` captured monotonically via `time.perf_counter()`
 - [x] Build FastAPI backend (`src/legalrag/api/`): `/health`, `/ready`, and `/query`
@@ -44,6 +44,11 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
       and honest analysis of reranker Recall@5/10 trade-offs
 - [x] Honest paragraph addressing the reranker Recall@5/10 dip documented in
       README and architecture docs
+- [x] Pre-deployment artifact-contract audit against the real production artifacts
+      (538,079 chunks: `bm25.pkl`, `dense.index`, `legal_chunks.parquet`): fixed the
+      BM25 `"bm25"` serialization mismatch, restored the BGE query instruction in
+      `DenseRetriever.search()`, and validated `load_production_pipeline()` /
+      `check_readiness()` / `POST /query` locally
 
 ## Locked architecture — do not change without explicit discussion
 
@@ -51,7 +56,7 @@ These were deliberately chosen and benchmarked. Don't "improve" them silently;
 if something looks suboptimal, flag it and ask before changing.
 
 - **Dataset**: `overthelex/indian-court-decisions`, config `high_courts`,
-  split `train`, streamed with `buffer_size=10000, seed=42`
+  split `train`, streamed with `buffer_size=50000, seed=42`
 - **Corpus size**: 100,000 judgments — this is FINAL, not an intermediate
   step. Do not re-embed at a different scale. (An earlier 80k run exists as
   throwaway scaffolding, superseded — not a numbered experiment.)
@@ -61,8 +66,9 @@ if something looks suboptimal, flag it and ask before changing.
   Dense (BAAI/bge-base-en-v1.5, 768-dim, FAISS IndexFlatIP) top-50 → RRF
   fusion (k=60) → top-50 → cross-encoder rerank
   (cross-encoder/ms-marco-MiniLM-L-6-v2) → top-5 → LLM context
-- **Generation**: Groq (`llama-3.3-70b-versatile`) via official `groq` SDK,
-  temperature=0, max_tokens=1024, strict exception shielding
+- **Generation**: Groq via official `groq` SDK, model ID from `GROQ_MODEL_NAME`
+  (default `qwen/qwen3.8-27b`), temperature=0, max_tokens=1024, request timeout
+  30 s, bounded retries, strict exception shielding
 - **Frozen artifacts** (do not regenerate unless the artifact is provably
   corrupted): `legal_judgments_clean.parquet`, `legal_chunks.parquet`,
   `bm25.pkl`, `dense.index` + embedding shards, `gold_eval.json` (497
@@ -76,7 +82,24 @@ if something looks suboptimal, flag it and ask before changing.
    `GenerationResult` (`status`, `is_success`, `error_type`), strict error
    shielding in `src/legalrag/api/routes.py`, and sanitized user-facing error
    responses with server-side `logger.exception()` logging.
-2. **Reranker hurts Recall@5/Recall@10 (Domain-Adaptation Trade-off)**:
+2. **BM25 artifact serialization mismatch (FIXED)**: the production `bm25.pkl` is a
+   pickled dict `{"bm25": <BM25Okapi>, "chunk_ids": [...]}` (the format written by
+   `Notebooks/legalrag-100k-final.ipynb`). `BM25Retriever.load()` previously read only
+   `state["model"]`, so production silently produced a retriever with `model=None` while
+   `chunk_ids` loaded correctly, and every query failed. The loader now reads
+   `bm25`, then `model`, then a bare pickled `BM25Okapi`, and fails closed if none of
+   those are present. Regression tests live in `tests/test_artifact_contracts.py`.
+3. **Dense query instruction was omitted (FIXED)**: the index was built for BGE retrieval
+   queries prefixed with `"Represent this sentence for searching relevant passages: "`
+   (recorded in `dense_index_metadata.json`). `DenseRetriever.search()` now applies that
+   instruction to queries only and keeps `search(..., top_k)` results consistent with the
+   experiment that produced `dense.index`. `dense.index` was NOT regenerated.
+4. **Groq model decommissioning**: `llama-3.3-70b-versatile` is no longer served by Groq, so
+   any deployment using it receives a provider 404 (`model_not_found`), which the service
+   correctly sanitizes into HTTP 502. `GROQ_MODEL_NAME` must be set to a currently served
+   model ID (default is now `qwen/qwen3.8-27b`); verify with
+   `curl https://api.groq.com/openai/v1/models`.
+5. **Reranker hurts Recall@5/Recall@10 (Domain-Adaptation Trade-off)**:
    Cross-encoder reranking improved Recall@1 (+3.42pp over hybrid-RRF,
    0.3219 → 0.3561) but *decreased* Recall@5 (0.5111 → 0.4869) and
    Recall@10 (0.5614 → 0.5594) versus hybrid-RRF alone. Root cause:
@@ -103,28 +126,26 @@ if something looks suboptimal, flag it and ask before changing.
 
 ## Hardware / environment constraints — important for how work gets split
 
-- **Local dev laptop**: 6GB RAM, DDR1, very old CPU. Cannot run the real
-  pipeline locally — the full stack (BM25 index + FAISS index + BGE-base
-  model + cross-encoder model + torch/transformers overhead) needs ~4.15GB
-  RAM just to load, leaving no headroom on a 6GB machine, and the CPU
-  generation is old enough that PyTorch/FAISS may run very slowly or hit
-  missing-instruction-set issues.
+- **Current local machine**: can hold the full real stack (BM25 index + FAISS
+  index + BGE-base model + cross-encoder model + torch/transformers). Measured
+  with the real 538,079-chunk artifacts: ≈10.5 GB peak RSS, ≈29.3 s cold
+  pipeline init, and ≈4.3 s per retrieval+rerank query on CPU (BM25 dominates).
+  Unit/integration tests still run entirely on stubs — no model downloads, no
+  FAISS index, no network.
+- **Historical constraint**: an older 6GB-RAM laptop could not hold the stack
+  (~4.15GB just to load), which is why local work was previously restricted to
+  stub/toy indexes.
 - **Consequence — where code runs**:
-  - Local laptop: write and test code only, against a small stub/toy index
-    (a few hundred fake chunks, no real BM25/FAISS/model weights loaded).
-    Used for verifying request/response shapes, error handling, and running
-    the existing unit test suite (all tests use stdlib unittest, cheap to
-    run anywhere).
-  - Kaggle: has the real frozen artifacts and 30GB RAM + 2 GPUs. Used for any
-    real integration testing against the actual 538k-chunk index, and for
-    uploading artifacts to Hugging Face Hub.
-  - Hugging Face: Spaces hosts the deployed FastAPI app (+ frontend); Hub
-    hosts the large artifacts (bm25.pkl ~579MB, dense.index ~1.65GB,
-    legal_chunks.parquet ~261MB) so the Space downloads them at startup
-    rather than needing them baked into a repo or built on a weak machine.
-- When asked to "run the pipeline" or "test retrieval end-to-end," check
-  which environment the request implies — don't attempt full-index operations
-  assuming a local machine that can't hold them.
+  - Local machine: unit/integration tests against stubs; end-to-end validation
+    against the real artifacts when present in `artifacts/` (gitignored — never
+    committed and never baked into the Docker image).
+  - Kaggle: original multi-GPU embedding/generation run and artifact upload.
+  - Hugging Face: Hub dataset `siddhu23/LegalRag_Dataset` hosts the large
+    artifacts (bm25.pkl ~579MB, dense.index ~1.65GB, legal_chunks.parquet
+    ~261MB); Spaces/containers download them at startup.
+- When asked to "run the pipeline" or "test retrieval end-to-end," first check
+  whether the real artifacts are present in `artifacts/`, then choose stub vs.
+  real execution explicitly.
 
 ## Package structure
 
@@ -147,11 +168,11 @@ src/legalrag/
     reranker.py   # Cross-encoder reranker
   generation/
     prompts.py    # locked RAG context formatting + system prompt
-    client.py     # Groq (llama-3.3-70b-versatile) typed client
+    client.py     # Groq typed client (model via GROQ_MODEL_NAME)
   evaluation/
     grounding.py  # find_gold_chunks evidence matcher
     metrics.py    # calculate_recall_at_k, failure taxonomy, aggregation
-tests/            # 27 unit & integration tests, stdlib unittest + TestClient
+tests/            # 133 unit & integration tests, stdlib unittest + pytest + TestClient
 ```
 
 New work (FastAPI app, latency logging, etc.) should live under

@@ -23,7 +23,7 @@ To reflect realistic legal research across Indian jurisdictions, the project sel
 - **Configuration**: `high_courts`
 - **Split**: `train`
 
-The source corpus spans millions of decisions across state High Courts. Because the complete dataset exceeds local memory and disk constraints, the project established a streaming ingestion strategy using Hugging Face datasets' `streaming=True` mode with a deterministic shuffle buffer (`buffer_size=10,000`, `seed=42`).
+The source corpus spans millions of decisions across state High Courts. Because the complete dataset exceeds local memory and disk constraints, the project established a streaming ingestion strategy using Hugging Face datasets' `streaming=True` mode with a deterministic shuffle buffer (`buffer_size=50,000`, `seed=42`).
 
 Key metadata attributes tracked per decision:
 - `cnr`: Unique Case Number Record across Indian courts.
@@ -185,6 +185,7 @@ The system prompt strictly enforced:
 
 RAG answer generation was executed over all benchmark questions:
 - **Routing Infrastructure**: Routed through OmniRoute via an OpenAI-compatible API layer to the configured generation model at temperature 0.
+  - **Serving note**: the frozen 497-answer benchmark was produced through that experimental routing layer. The deployed FastAPI service does not use it — production generation goes through the official `groq` SDK (`LegalGenerationClient`) with the model selected by `GROQ_MODEL_NAME`, because the routing layer leaked raw provider errors into answer fields.
 - **Checkpointing**: Every generated response was immediately saved to disk (`rag_results.json`).
 - **Inspection**: Sample responses verified grounding, formatting, and citation compliance before batch execution.
 
@@ -255,6 +256,8 @@ The research, corpus engineering, retrieval modeling, and RAG evaluation phases 
 - [x] **Production Exception Shielding & LLMOps**: Trapped all generation, rate-limit (429), and network errors to prevent raw exception leakage into answers.
 - [x] **Citation Grounding Defense**: Enforced strict cross-referencing between extracted `[Chunk ID: ...]` citations and retrieved top-5 context chunks.
 - [x] **Groq Generation Client Migration**: Implemented official `groq` SDK client integration with typed `GenerationResult` structures, token usage tracking, and graceful error shielding.
+- [x] **Artifact-contract hardening (production incident)**: Fixed `BM25Retriever.load()` to read the real `{"bm25": ..., "chunk_ids": [...]}` artifact (plus the legacy `"model"` key and bare `BM25Okapi`) and fail closed otherwise; restored the BGE retrieval query instruction in `DenseRetriever.search()` to match `dense_index_metadata.json`; added `/ready` warmup + structural validation so a non-null but unusable component can no longer report ready.
+- [x] **Real-artifact pre-deployment validation**: Loaded the real 538,079-chunk `bm25.pkl`, `dense.index`, and `legal_chunks.parquet` locally through `load_production_pipeline()`, exercised the full BM25 top-50 → Dense top-50 → RRF k=60 → CrossEncoder top-5 cascade, and confirmed `check_readiness()` → `(True, "ready")` with `/health` 200, `/ready` 200, and `/query` 200 (generation stubbed).
 - [x] **Docker Containerization for Cloud Deployment**: Created non-root (UID 1000) Dockerfile adhering to port 7860 binding standards with automated Hub artifact download scripts for Azure Container Apps and Hugging Face Spaces.
 
 ### Next Roadmap (Phase 3 UI & Optimization):
