@@ -72,4 +72,8 @@ artifacts/
 .coverage
 htmlcov/
 .mypy_cache/
+
+
+#aws
+legalrag-key.pem
 .ruff_cache/
