@@ -61,7 +61,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const isErrorStatus = result.status !== 'ok';
 
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="relative min-h-[calc(100dvh-4rem)] overflow-hidden">
       {/* Subtle ambient lighting */}
       <div
         className="absolute top-10 left-1/4 w-[280px] sm:w-[500px] h-[250px] bg-brass/[0.04] rounded-full blur-[140px] pointer-events-none z-0"
@@ -74,13 +74,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <button
             type="button"
             onClick={onNewSearch}
-            className="group inline-flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh border border-white/[0.08] hover:border-brass/30 text-xs font-mono text-gray-300 hover:text-white transition-all shadow-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-brass"
+            className="group inline-flex items-center space-x-2 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh border border-white/[0.08] hover:border-brass/30 text-xs font-mono text-gray-300 hover:text-white transition-all shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brass"
           >
             <ArrowLeft className="w-3.5 h-3.5 text-brass group-hover:-translate-x-0.5 transition-transform" />
             <span>New Inquiry</span>
           </button>
 
-          <div className="flex items-center space-x-2.5">
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
             {/* Status Indicator */}
             {isErrorStatus ? (
               <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-red-950/40 border border-red-500/30 text-xs font-mono text-red-300">
@@ -98,7 +98,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             <button
               type="button"
               onClick={handleCopySynthesis}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh border border-white/[0.08] hover:border-brass/30 text-xs font-mono text-gray-300 hover:text-brass-light transition-all"
+              className="inline-flex items-center justify-center space-x-1.5 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh border border-white/[0.08] hover:border-brass/30 text-xs font-mono text-gray-300 hover:text-brass-light transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brass"
               title="Copy synthesized answer and citations"
             >
               {copiedSynthesis ? (
@@ -142,7 +142,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             </button>
           </div>
 
-          <h2 className="font-serif italic text-base sm:text-lg text-white leading-relaxed">
+          <h2 className="font-serif italic text-base sm:text-lg text-white leading-relaxed break-words">
             "{question}"
           </h2>
 
@@ -159,7 +159,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           {/* Left Column: Clean Grounded Synthesis Reading Pane */}
           <div className="lg:col-span-7 bg-canvas-surfaceLow/90 border border-white/[0.08] rounded-xl p-5 sm:p-7 shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between pb-3.5 mb-5 border-b border-white/[0.07]">
+            <div className="flex flex-wrap items-center justify-between gap-y-2.5 pb-3.5 mb-5 border-b border-white/[0.07]">
               <div className="flex items-center space-x-2">
                 <div className="w-6 h-6 rounded bg-brass/10 border border-brass/25 flex items-center justify-center text-brass font-serif font-bold text-xs">
                   §
@@ -169,7 +169,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 </h3>
               </div>
 
-              <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-canvas-base border border-white/[0.06] text-xs font-mono text-brass-light">
+              <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-canvas-base border border-white/[0.06] text-xs font-mono text-brass-light shrink-0">
                 <ShieldCheck className="w-3.5 h-3.5 text-brass" />
                 <span>{result.citations.length} Verified Sources</span>
               </div>
@@ -199,7 +199,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           {/* Right Column: Citation Authority Cards */}
           <div className="lg:col-span-5 flex flex-col space-y-3">
             {/* Citations Pane Header */}
-            <div className="bg-canvas-surfaceLow/90 border border-white/[0.08] rounded-xl p-3.5 sm:p-4 flex items-center justify-between">
+            <div className="bg-canvas-surfaceLow/90 border border-white/[0.08] rounded-xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-y-2">
               <div className="flex items-center space-x-2">
                 <FileText className="w-4 h-4 text-brass" />
                 <h3 className="font-mono text-xs uppercase tracking-wider text-white font-medium">
@@ -207,13 +207,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 </h3>
               </div>
 
-              <span className="text-[10px] font-mono text-slateSteel bg-canvas-base px-2 py-0.5 rounded border border-white/[0.05]">
+              <span className="text-[11px] font-mono text-slateSteel bg-canvas-base px-2 py-0.5 rounded border border-white/[0.05]">
                 Click badge to highlight
               </span>
             </div>
 
             {/* Scrollable Citation Card List */}
-            <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+            <div className="space-y-3 lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
               {result.citations.length > 0 ? (
                 result.citations.map((citation, index) => (
                   <CitationCard
@@ -230,7 +230,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                   <p className="text-xs font-mono text-gray-400 font-medium">
                     No Direct Citations Attributed
                   </p>
-                  <p className="text-[11px] font-sans text-gray-500 max-w-xs mx-auto">
+                  <p className="text-[11px] font-sans text-slateSteel max-w-xs mx-auto">
                     The model did not anchor specific chunk citations in this synthesis.
                   </p>
                 </div>
@@ -251,7 +251,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           </div>
 
           <div className="lg:col-span-5 flex items-center">
-            <div className="w-full p-3 rounded-lg bg-canvas-surfaceLow/60 border border-white/[0.05] flex items-start space-x-2.5 text-[11px] font-mono text-gray-500">
+            <div className="w-full p-3 rounded-lg bg-canvas-surfaceLow/60 border border-white/[0.05] flex items-start space-x-2.5 text-[11px] font-mono text-slateSteel">
               <Info className="w-3.5 h-3.5 text-slateSteel shrink-0 mt-0.5" />
               <p className="leading-relaxed">
                 Synthesized autonomously over Indian High Court judgments. Citations reflect candidate passages retrieved via BM25 + BGE Dense + Cross-Encoder reranking.

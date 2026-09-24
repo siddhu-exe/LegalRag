@@ -32,7 +32,7 @@ export const LatencyPill: React.FC<LatencyPillProps> = ({
         <div className="flex items-center space-x-1.5 text-xs">
           <span className="text-gray-400">Total:</span>
           <span className="text-brass font-bold">{totalMs.toFixed(0)}ms</span>
-          <span className="text-gray-500 text-[10px]">({(totalMs / 1000).toFixed(2)}s)</span>
+          <span className="text-slateSteel text-[11px]">({(totalMs / 1000).toFixed(2)}s)</span>
         </div>
       </div>
 
@@ -56,12 +56,12 @@ export const LatencyPill: React.FC<LatencyPillProps> = ({
       </div>
 
       {/* Metric Breakdown Badges */}
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
         {/* Stage 1: Retrieval */}
         <div className="flex items-center justify-between p-1.5 rounded bg-canvas-base/50 border border-white/[0.04]">
           <div className="flex items-center space-x-1 text-gray-400">
             <Database className="w-3 h-3 text-vectorMint shrink-0" />
-            <span className="text-[10px] uppercase text-slateSteel-light">1. Retrieval</span>
+            <span className="text-[11px] uppercase text-slateSteel-light">1. Retrieval</span>
           </div>
           <span className="text-vectorMint font-medium">{retrieveMs.toFixed(0)}ms</span>
         </div>
@@ -70,7 +70,7 @@ export const LatencyPill: React.FC<LatencyPillProps> = ({
         <div className="flex items-center justify-between p-1.5 rounded bg-canvas-base/50 border border-white/[0.04]">
           <div className="flex items-center space-x-1 text-gray-400">
             <Layers className="w-3 h-3 text-slateSteel shrink-0" />
-            <span className="text-[10px] uppercase text-slateSteel-light">2. Rerank</span>
+            <span className="text-[11px] uppercase text-slateSteel-light">2. Rerank</span>
           </div>
           <span className="text-slateSteel-light font-medium">{rerankMs.toFixed(0)}ms</span>
         </div>
@@ -79,7 +79,7 @@ export const LatencyPill: React.FC<LatencyPillProps> = ({
         <div className="flex items-center justify-between p-1.5 rounded bg-canvas-base/50 border border-white/[0.04]">
           <div className="flex items-center space-x-1 text-gray-400">
             <Cpu className="w-3 h-3 text-brass shrink-0" />
-            <span className="text-[10px] uppercase text-slateSteel-light">3. Groq LLM</span>
+            <span className="text-[11px] uppercase text-slateSteel-light">3. Groq LLM</span>
           </div>
           <span className="text-brass-light font-medium">{generateMs.toFixed(0)}ms</span>
         </div>

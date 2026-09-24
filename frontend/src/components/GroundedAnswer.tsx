@@ -128,7 +128,7 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
   const lines = answer.split('\n');
 
   return (
-    <div className="space-y-4 text-gray-200 font-sans text-[15px] sm:text-[15.5px] leading-[1.8] antialiased">
+    <div className="space-y-4 text-gray-200 font-sans text-[15px] sm:text-[15.5px] leading-[1.8] antialiased break-words">
       {lines.map((line, idx) => {
         const trimmed = line.trim();
 

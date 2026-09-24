@@ -175,8 +175,8 @@ export const AskView: React.FC<AskViewProps> = ({
         {/* Query Console Card */}
         <div className="bg-canvas-surfaceLow border border-white/[0.08] rounded-xl p-5 sm:p-7 shadow-2xl relative transition-all duration-300 focus-within:border-brass/40 focus-within:shadow-[0_0_35px_-5px_rgba(212,175,55,0.12)] mb-12">
           {/* Console Header Bar */}
-          <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/[0.06]">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 pb-3 mb-4 border-b border-white/[0.06]">
+            <div className="flex items-center space-x-2 min-w-0">
               <Scale className="w-4 h-4 text-brass" />
               <span className="font-mono text-xs text-slateSteel uppercase tracking-wider font-medium">
                 Judicial Inquiry Contextualizer
@@ -188,7 +188,7 @@ export const AskView: React.FC<AskViewProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-vectorMint"></span>
                 <span>BGE Dense + BM25</span>
               </span>
-              <span className="text-gray-600 hidden sm:inline">•</span>
+              <span className="text-slateSteel/70 hidden sm:inline">•</span>
               <span>Top-5 Reranked Context</span>
             </div>
           </div>
@@ -204,7 +204,7 @@ export const AskView: React.FC<AskViewProps> = ({
                 placeholder="State your legal proposition or factual inquiry (e.g., Section 482 CrPC quashing in matrimonial disputes, Article 226 maintainability, Section 139 NI Act presumptions)..."
                 disabled={isLoading}
                 rows={4}
-                className="w-full bg-canvas-base border border-white/[0.08] rounded-lg p-4 font-sans text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brass/60 focus:ring-1 focus:ring-brass/60 transition-all resize-none leading-relaxed disabled:opacity-50"
+                className="w-full min-h-[104px] bg-canvas-base border border-white/[0.08] rounded-lg p-4 font-sans text-base sm:text-sm text-gray-100 placeholder-gray-400 focus:outline-none focus:border-brass/60 focus:ring-1 focus:ring-brass/60 transition-all resize-none leading-relaxed disabled:opacity-50"
                 aria-label="Legal Inquiry Input"
               />
             </div>
@@ -212,7 +212,7 @@ export const AskView: React.FC<AskViewProps> = ({
             {/* Bottom Form Action Strip */}
             <div className="mt-4 pt-3 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               {/* Character & Validation Counter */}
-              <div className="flex items-center space-x-2 text-xs font-mono">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono">
                 <span
                   className={
                     isTooShort
@@ -237,8 +237,8 @@ export const AskView: React.FC<AskViewProps> = ({
               </div>
 
               {/* Actions: Cancel + Submit Button */}
-              <div className="flex items-center space-x-3 self-end sm:self-auto">
-                <span className="hidden md:inline-flex items-center space-x-1 text-[11px] font-mono text-gray-500">
+              <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                <span className="hidden md:inline-flex items-center space-x-1 text-[11px] font-mono text-slateSteel">
                   <kbd className="px-1.5 py-0.5 rounded bg-canvas-surfaceHigh border border-white/[0.08] text-gray-300">
                     ⌘/Ctrl
                   </kbd>
@@ -252,7 +252,7 @@ export const AskView: React.FC<AskViewProps> = ({
                   <button
                     type="button"
                     onClick={onCancel}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-2 text-xs font-mono text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/40 border border-red-500/30 rounded-lg transition-colors"
+                    className="inline-flex items-center justify-center space-x-1.5 px-3.5 py-2 min-h-[44px] sm:min-h-0 w-full sm:w-auto text-xs font-mono text-red-400 hover:text-red-300 bg-red-950/20 hover:bg-red-950/40 border border-red-500/30 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surfaceLow"
                   >
                     <XCircle className="w-3.5 h-3.5" />
                     <span>Cancel</span>
@@ -262,7 +262,7 @@ export const AskView: React.FC<AskViewProps> = ({
                 <button
                   type="submit"
                   disabled={!isValid || isLoading}
-                  className="group relative inline-flex items-center justify-center space-x-2 px-6 py-2.5 rounded-lg bg-brass hover:bg-brass-light text-canvas-base font-sans font-semibold text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_2px_15px_-3px_rgba(212,175,55,0.3)] active:scale-[0.98]"
+                  className="group relative inline-flex items-center justify-center space-x-2 px-6 py-2.5 min-h-[44px] w-full sm:w-auto rounded-lg bg-brass hover:bg-brass-light text-canvas-base font-sans font-semibold text-xs uppercase tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_2px_15px_-3px_rgba(212,175,55,0.3)] active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-brass-light focus-visible:ring-offset-2 focus-visible:ring-offset-canvas-surfaceLow"
                 >
                   <span>{isLoading ? 'Synthesizing...' : 'Synthesize Precedents'}</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
@@ -300,7 +300,7 @@ export const AskView: React.FC<AskViewProps> = ({
                           ? 'bg-canvas-surfaceHigh border-brass/50 text-white shadow-sm'
                           : isCompleted
                           ? 'bg-canvas-surface/40 border-vectorMint/30 text-gray-300'
-                          : 'bg-canvas-surface/20 border-white/[0.04] text-gray-500'
+                          : 'bg-canvas-surface/20 border-white/[0.04] text-slateSteel'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1">
@@ -331,7 +331,10 @@ export const AskView: React.FC<AskViewProps> = ({
 
           {/* Granular Error Banner with Diagnostic Context */}
           {error && (
-            <div className="mt-5 p-4 rounded-lg bg-red-950/30 border border-red-500/40 flex items-start space-x-3 text-red-200">
+            <div
+              role="alert"
+              className="mt-5 p-4 rounded-lg bg-red-950/30 border border-red-500/40 flex items-start space-x-3 text-red-200"
+            >
               <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               <div className="text-xs space-y-1">
                 <div className="font-mono font-semibold uppercase tracking-wider text-red-300">
@@ -355,7 +358,7 @@ export const AskView: React.FC<AskViewProps> = ({
                 01 // Benchmark Evaluation Test Vectors
               </h2>
             </div>
-            <span className="font-mono text-[11px] text-gray-500 mt-1 sm:mt-0">
+            <span className="font-mono text-[11px] text-slateSteel mt-1 sm:mt-0">
               497-Question Evidence-Grounded Suite
             </span>
           </div>
@@ -370,11 +373,11 @@ export const AskView: React.FC<AskViewProps> = ({
                 className="text-left p-4 rounded-lg bg-canvas-surface/60 hover:bg-canvas-surfaceHigh border border-white/[0.06] hover:border-brass/40 transition-all duration-200 group flex flex-col justify-between focus:outline-none focus-visible:ring-2 focus-visible:ring-brass"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded bg-canvas-surfaceHigh text-slateSteel-light border border-white/[0.06] group-hover:border-brass/30 group-hover:text-brass-light transition-colors">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
+                    <span className="font-mono text-[11px] uppercase tracking-wider px-2 py-0.5 rounded bg-canvas-surfaceHigh text-slateSteel-light border border-white/[0.06] group-hover:border-brass/30 group-hover:text-brass-light transition-colors">
                       {item.category}
                     </span>
-                    <span className="text-[10px] font-mono text-gray-500">
+                    <span className="text-[11px] font-mono text-slateSteel">
                       {item.jurisdiction}
                     </span>
                   </div>

@@ -83,12 +83,12 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200 antialiased">
+    <div className="min-h-dvh bg-canvas-base flex flex-col font-sans text-gray-200 antialiased selection:bg-brass selection:text-canvas-base">
       <Header onNewSearch={handleNewSearch} backendStatus={backendStatus} />
 
       <main className="flex-1">
         {backendStatus === 'checking' ? (
-          <div className="min-h-[calc(100vh-8rem)] flex flex-col items-center justify-center p-6 text-center space-y-4">
+          <div className="min-h-[calc(100dvh-8rem)] flex flex-col items-center justify-center px-5 py-10 text-center space-y-4">
             <div className="relative">
               <div className="w-14 h-14 rounded-xl bg-canvas-surfaceHigh border border-white/[0.08] flex items-center justify-center text-brass shadow-lg">
                 <Server className="w-7 h-7 text-brass opacity-80" />
@@ -128,10 +128,10 @@ export const App: React.FC = () => {
       </main>
 
       {/* Editorial Footer */}
-      <footer className="border-t border-white/[0.06] bg-canvas-surface/40 py-6 text-center text-xs font-mono text-gray-500">
+      <footer className="border-t border-white/[0.06] bg-canvas-surface/40 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] text-center text-xs font-mono text-slateSteel">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>LegalRAG · Autonomous Judicial Retrieval Engine</span>
-          <span className="text-gray-600">
+          <span className="text-slateSteel/80">
             100,000 High Court Judgments · 538,079 Chunks · BGE + BM25 + Cross-Encoder
           </span>
         </div>
