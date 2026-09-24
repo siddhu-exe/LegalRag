@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><title>LegalRAG — Autonomous Judicial Retrieval &amp; Grounded Synthesis</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-container-lowest": "#0b0e14", "secondary-fixed": "#cee5ff", "surface-container-highest": "#32353c", "on-tertiary-fixed-variant": "#005047", "surface-variant": "#32353c", "tertiary-fixed-dim": "#3cddc7", "outline": "#99907c", "error-container": "#93000a", "primary": "#f2ca50", "surface": "#10131a", "on-primary": "#3c2f00", "surface-dim": "#10131a", "inverse-surface": "#e1e2eb", "on-tertiary-fixed": "#00201c", "surface-container-low": "#191c22", "primary-container": "#d4af37", "on-tertiary": "#003731", "on-secondary-container": "#9db8d5", "on-error": "#690005", "on-secondary-fixed": "#001d33", "outline-variant": "#4d4635", "inverse-on-surface": "#2e3037", "on-secondary": "#16324a", "on-background": "#e1e2eb", "tertiary-fixed": "#62fae3", "secondary-fixed-dim": "#aec9e7", "surface-bright": "#363940", "secondary": "#aec9e7", "surface-container-high": "#272a31", "on-tertiary-container": "#004f46", "primary-fixed": "#ffe088", "on-primary-fixed-variant": "#574500", "on-primary-container": "#554300", "primary-fixed-dim": "#e9c349", "secondary-container": "#2e4962", "error": "#ffb4ab", "inverse-primary": "#735c00", "surface-tint": "#e9c349", "on-secondary-fixed-variant": "#2e4962", "on-error-container": "#ffdad6", "on-surface-variant": "#d0c5af", "on-primary-fixed": "#241a00", "on-surface": "#e1e2eb", "surface-container": "#1d2026", "background": "#10131a", "tertiary": "#48e5d0", "tertiary-container": "#11c9b4" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1.5rem", "gutter": "1.5rem", "space-sm": "0.5rem", "space-md": "1rem", "margin": "2rem", "space-xs": "0.25rem", "margin-lg": "4rem", "margin-sm": "1.25rem", "gutter-sm": "1rem", "gutter-lg": "2rem", "space-xl": "2.5rem" }, "fontFamily": { "body-lg": [ "Inter" ], "headline-sm": [ "Inter" ], "body-md": [ "Inter" ], "label-ui": [ "Inter" ], "headline-lg": [ "Newsreader" ], "citation-quote": [ "Newsreader" ], "body-sm": [ "Inter" ], "display-lg": [ "Newsreader" ], "headline-lg-mobile": [ "Newsreader" ], "code-sm": [ "JetBrains Mono" ], "label-mono": [ "JetBrains Mono" ], "headline-md": [ "Newsreader" ], "display-lg-mobile": [ "Newsreader" ] }, "fontSize": { "body-lg": [ "17px", { "lineHeight": "28px", "letterSpacing": "-0.002em", "fontWeight": "400" } ], "headline-sm": [ "20px", { "lineHeight": "28px", "letterSpacing": "-0.005em", "fontWeight": "600" } ], "body-md": [ "15px", { "lineHeight": "24px", "fontWeight": "400" } ], "label-ui": [ "12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" } ], "headline-lg": [ "40px", { "lineHeight": "48px", "letterSpacing": "-0.015em", "fontWeight": "400" } ], "citation-quote": [ "18px", { "lineHeight": "28px", "letterSpacing": "0.01em", "fontWeight": "400" } ], "body-sm": [ "13px", { "lineHeight": "20px", "fontWeight": "400" } ], "display-lg": [ "56px", { "lineHeight": "64px", "letterSpacing": "-0.02em", "fontWeight": "400" } ], "headline-lg-mobile": [ "28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "400" } ], "code-sm": [ "12px", { "lineHeight": "18px", "fontWeight": "400" } ], "label-mono": [ "11px", { "lineHeight": "16px", "letterSpacing": "0.06em", "fontWeight": "500" } ], "headline-md": [ "28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "400" } ], "display-lg-mobile": [ "36px", { "lineHeight": "44px", "letterSpacing": "-0.01em", "fontWeight": "400" } ] } } } };</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container min-h-screen flex flex-col justify-between"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-lowest/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.4)]"><div class="h-16 w-full px-gutter lg:px-gutter-lg flex items-center justify-between"><div class="flex items-center gap-space-md"><a class="flex items-center gap-space-sm group" data-path="query-console" href="#"><img alt="LegalRAG Emblem" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1WlvEZ5amnMqWyETGznAGy-VcQohpSP25lPjX2CfOvUuxk1a8imVu9ClPCEjGzZchkKRqYicY88URhTorucxgQx5ZkH_S4HtLlsCtCTJTna2F7GTeATXPqKt3F8Sjrxq7GIRlLIEuXOi1zdOpmoTB2SxR7_1sW1u0TsF87d7G3alALy44iPFNyrRybe_bXDy538owMGTKP7kUglu4rA8iDJGQ4zAc7VeKRqNYZNGrMUO0Mb8Cka_BJ982A"/><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight group-hover:text-primary transition-colors">LegalRAG</span></a><div class="hidden sm:flex items-center gap-space-xs px-space-sm py-space-xs rounded-full bg-surface-container-low"><span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span><span class="font-label-mono text-label-mono text-outline uppercase tracking-wider">RESEARCH PROTOTYPE / PORTFOLIO ARTIFACT</span></div></div><nav class="hidden md:flex items-center gap-gutter lg:gap-gutter-lg" data-active-classes="text-primary border-b border-primary font-medium"><a class="font-label-mono text-label-mono text-on-surface-variant hover:text-on-surface transition-colors py-1" data-path="query-console" href="#">01. Query Console</a><a aria-current="page" class="transition-colors py-1 text-primary border-b border-primary font-medium" data-path="grounded-synthesis" href="#">02. Grounded Synthesis</a></nav><div class="flex items-center gap-space-md"><span class="hidden lg:inline-flex items-center font-label-mono text-label-mono text-tertiary bg-surface-container-low px-space-sm py-space-xs rounded-full">v1.4.2 · arXiv:2408.xxxxx</span><a class="hidden sm:inline-flex items-center font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors" data-path="architecture-paper" href="#">View Paper / Architecture</a><a class="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors flex items-center justify-center" href="https://github.com" rel="noopener noreferrer" target="_blank" title="Source Code &amp; Repositories"><span class="material-symbols-outlined text-[20px]">code</span></a><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-16 bg-surface min-h-[calc(100vh-4rem)] flex-1"><div class="flex flex-col w-full">
+<!-- Persistent Context Topbar -->
+<div class="w-full bg-surface-container-lowest px-gutter lg:px-margin-lg py-space-md shadow-sm">
+<div class="max-w-[1440px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex items-start sm:items-center gap-space-md min-w-0">
+<span class="p-2 rounded-lg bg-surface-container-high text-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[20px]">balance</span>
+</span>
+<div class="min-w-0">
+<div class="flex items-center gap-space-sm mb-0.5">
+<span class="font-label-mono text-label-mono text-outline uppercase tracking-wider">ACTIVE INQUIRY // JURISDICTION: FEDERAL + COMMON LAW</span>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-tertiary-container/20 text-tertiary font-label-mono text-[10px]">CORPUS DETERMINED</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface truncate tracking-tight">
+            Under what conditions does the doctrine of promissory estoppel override formal statutory writing requirements in commercial construction disputes?
+          </p>
+</div>
+</div>
+<div class="flex items-center gap-space-sm shrink-0 self-end lg:self-auto">
+<button class="px-space-md py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-colors flex items-center gap-space-xs font-label-ui text-label-ui" id="toggle-spans">
+<span class="material-symbols-outlined text-[16px] text-primary">highlight</span>
+<span>Highlight Grounding</span>
+</button>
+<button class="px-space-md py-2 rounded-lg bg-surface-container-high hover:bg-surface-variant text-on-surface transition-colors flex items-center gap-space-xs font-label-ui text-label-ui">
+<span class="material-symbols-outlined text-[16px]">edit_note</span>
+<span>Edit Query</span>
+</button>
+<button class="px-space-md py-2 rounded-lg bg-primary text-on-primary hover:bg-primary-fixed-dim transition-colors flex items-center gap-space-xs font-label-ui text-label-ui font-semibold shadow-md">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+<span>Re-run Synthesis</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Main Asymmetric Workspace Layout (60% Editorial / 40% Verified Telemetry) -->
+<div class="w-full max-w-[1440px] mx-auto px-gutter lg:px-margin-lg py-space-xl">
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter-lg items-start">
+<!-- Left Column (7 of 12 cols ~= 58-60%): Grounded Judicial Synthesis -->
+<section class="lg:col-span-7 flex flex-col gap-space-lg">
+<!-- Verification Seal / Faithfulness Header Card -->
+<div class="w-full bg-surface-container-low rounded-xl p-space-lg relative overflow-hidden shadow-sm">
+<div class="absolute -right-8 -top-8 w-44 h-44 rounded-full bg-primary/5 blur-3xl pointer-events-none"></div>
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-md">
+<div>
+<div class="flex items-center gap-space-sm mb-1">
+<span class="flex h-2.5 w-2.5 rounded-full bg-tertiary animate-pulse"></span>
+<span class="font-label-mono text-label-mono text-tertiary tracking-wider uppercase">Attribution Authenticated · Zero-Hallucination Gate 100% Passed</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Grounded Judicial Synthesis</h1>
+</div>
+<!-- Metric Badge -->
+<div class="flex items-center gap-space-md bg-surface-container-lowest px-space-md py-space-sm rounded-lg self-start sm:self-auto">
+<div class="text-right">
+<div class="font-label-mono text-[10px] uppercase text-outline">Faithfulness Score</div>
+<div class="font-label-mono text-headline-sm text-primary font-bold tracking-tight">0.982<span class="text-xs text-outline font-normal"> / 1.000</span></div>
+</div>
+<div class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+</div>
+</div>
+<!-- Quick Action Bar -->
+<div class="mt-space-md pt-space-sm flex flex-wrap items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-xs font-label-mono text-code-sm text-outline">
+<span class="material-symbols-outlined text-[16px] text-tertiary">lock</span>
+<span>Statutory Alignment: Restatement (Second) of Contracts § 139 &amp; UCC § 2-201</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="p-2 rounded-lg bg-surface-container-high hover:bg-surface-variant text-on-surface-variant hover:text-on-surface transition-colors text-xs flex items-center gap-1 font-label-ui" id="copy-synthesis-btn">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+<span>Copy Prose</span>
+</button>
+<button class="p-2 rounded-lg bg-surface-container-high hover:bg-surface-variant text-on-surface-variant hover:text-on-surface transition-colors text-xs flex items-center gap-1 font-label-ui">
+<span class="material-symbols-outlined text-[16px]">download</span>
+<span>Export Brief (PDF/DOCX)</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Synthesized Legal Document Body -->
+<article class="bg-surface-container-low rounded-xl p-space-lg lg:p-space-xl flex flex-col gap-space-xl shadow-sm text-on-surface">
+<!-- Section 1 -->
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary uppercase font-bold">01 //</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Executive Jurisprudential Summary</h2>
+</div>
+<span class="font-label-mono text-[11px] text-outline uppercase tracking-wider">Doctrinal Triad</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              In commercial construction transactions governed by statutory writing constraints—notably the Statute of Frauds (e.g., contracts not performable within one calendar year or agreements in excess of statutory monetary thresholds)—the doctrine of promissory estoppel acts not as an unrestrained equity remedy, but as an evidentiary and equitable override strictly conditioned upon three foundational elements:
+            </p>
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-space-sm my-space-xs">
+<div class="p-space-md rounded-lg bg-surface-container-high flex flex-col gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary font-semibold">ELEMENT A</span>
+<h4 class="font-label-ui text-label-ui font-semibold text-on-surface">Definite Promise</h4>
+<p class="font-body-sm text-body-sm text-outline">An unambiguous, clear manifestation of intent by the promisor intended to induce mobilization or forbearance.</p>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-high flex flex-col gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary font-semibold">ELEMENT B</span>
+<h4 class="font-label-ui text-label-ui font-semibold text-on-surface">Detrimental Reliance</h4>
+<p class="font-body-sm text-body-sm text-outline">Foreseeable, substantial economic and operational action undertaken prior to formal memorialization.</p>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-high flex flex-col gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary font-semibold">ELEMENT C</span>
+<h4 class="font-label-ui text-label-ui font-semibold text-on-surface">Grave Injustice</h4>
+<p class="font-body-sm text-body-sm text-outline">Gross inequity or unconscionable injury that cannot be remedied through mere restitution or quantum meruit.</p>
+</div>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              Jurisdictional consensus dictates that the doctrine does not automatically extinguish statutory requirements. Rather, pursuant to the formulation articulated in <span class="grounded-span bg-primary/10 px-1 rounded transition-colors text-on-surface font-medium">Restatement (Second) of Contracts § 139</span>, a promise which the promisor should reasonably expect to induce action or forbearance is enforceable notwithstanding the Statute of Frauds only if injustice can be avoided exclusively through the enforcement of the promise. 
+              <button class="cite-ref inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-primary/20 hover:bg-primary hover:text-on-primary text-primary font-label-mono text-xs transition-colors ml-1 font-semibold align-baseline" data-cite="1">
+                [1]
+              </button>
+</p>
+</div>
+<!-- Section 2 -->
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary uppercase font-bold">02 //</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Statutory Interplay &amp; Exceptions to Statute of Frauds</h2>
+</div>
+<span class="font-label-mono text-[11px] text-outline uppercase tracking-wider">Unconscionable Injury</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              In heavy civil and commercial subcontractor bidding schemes, prime contractors routinely rely on oral bids when formulating aggregated project packages. In this arena, courts diverge sharply on whether ordinary commercial reliance satisfies the elevated evidentiary standard:
+            </p>
+<blockquote class="pl-space-lg my-space-sm bg-surface-container rounded-r-lg p-space-md">
+<p class="font-citation-quote text-citation-quote italic text-on-surface leading-relaxed">
+                “To permit a party to avoid an unwritten commitment merely because the contract falls within the Statute of Frauds, where the non-breaching contractor has undergone an unconscionable change of position resulting in unjust enrichment to the counterparty, would subvert the statute from a shield against fraud into an instrument of fraud.”
+              </p>
+<footer class="mt-space-xs font-label-mono text-code-sm text-outline">
+                — Supreme Court of California, <span class="text-primary">Monarco v. Lo Greco</span>, 35 Cal. 2d 621, 623
+                <button class="cite-ref inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-primary/20 hover:bg-primary hover:text-on-primary text-primary font-label-mono text-xs transition-colors ml-1 font-semibold" data-cite="4">
+                  [4]
+                </button>
+</footer>
+</blockquote>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              Consequently, <span class="grounded-span bg-primary/10 px-1 rounded transition-colors text-on-surface">partial performance accompanied by substantial resource deployment</span> (such as purchasing proprietary custom structural steel or mobilizing crane apparatuses) transforms the estoppel plea into a recognized bar against the statutory defense. Crucially, where the promisor stood by and permitted the contractor to alter its position irremediably, courts dispense with formal execution requirements to preempt manifest bad faith.
+              <button class="cite-ref inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-primary/20 hover:bg-primary hover:text-on-primary text-primary font-label-mono text-xs transition-colors ml-1 font-semibold" data-cite="2">
+                [2]
+              </button>
+</p>
+</div>
+<!-- Section 3 -->
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary uppercase font-bold">03 //</span>
+<h2 class="font-headline-md text-headline-md text-on-surface">Leading Precedential Consensus &amp; Circuit Cleavages</h2>
+</div>
+<span class="font-label-mono text-[11px] text-outline uppercase tracking-wider">Circuit Disparity</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              Circuit jurisprudence maintains a delicate split regarding whether expectation damages or solely reliance damages may be awarded when overriding writing mandates. 
+              Under the Seventh Circuit's analysis in <span class="text-on-surface font-medium">D&amp;G Stout, Inc. v. Bacardi Imports, Inc.</span>, promissory estoppel is not deployed to construct a comprehensive fictional contract, but strictly to restore the promisee to the pre-reliance status quo by reimbursing quantifiable operating capital outlays.
+              <button class="cite-ref inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-primary/20 hover:bg-primary hover:text-on-primary text-primary font-label-mono text-xs transition-colors ml-1 font-semibold" data-cite="3">
+                [3]
+              </button>
+</p>
+<p class="font-body-lg text-body-lg text-on-surface-variant leading-relaxed">
+              Conversely, First Circuit holdings—exemplified by <span class="text-on-surface font-medium">Redgrave v. Boston Symphony Orchestra, Inc.</span>—emphasize that where consequential losses (e.g., irreversible reputational damage or forfeiture of lucrative collateral bid engagements) can be traced with reasonable certainty to the repudiated oral covenant, consequential compensatory mechanisms are appropriate to mitigate unconscionable injury.
+              <button class="cite-ref inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-primary/20 hover:bg-primary hover:text-on-primary text-primary font-label-mono text-xs transition-colors ml-1 font-semibold" data-cite="1">
+                [1]
+              </button>
+</p>
+<!-- Verification Metadata Footnote inside editorial pane -->
+<div class="mt-space-md p-space-md rounded-lg bg-surface-container flex items-start gap-space-md">
+<span class="material-symbols-outlined text-tertiary text-[22px] shrink-0 mt-0.5">policy</span>
+<div class="font-body-sm text-body-sm text-outline">
+<strong class="text-on-surface font-medium">Model Inference Verification:</strong> All synthetic propositions cross-referenced against 1,842 indexed decisions within the State &amp; Federal Commercial Construction Law Repository. No out-of-context citations detected.
+              </div>
+</div>
+</div>
+</article>
+</section>
+<!-- Right Column (5 of 12 cols ~= 40-42%): Verified Citations & Retrieval Telemetry -->
+<aside class="lg:col-span-5 flex flex-col gap-space-lg">
+<!-- Precedents Header -->
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="font-label-mono text-label-mono text-primary font-bold">VERIFIED SOURCES</span>
+<span class="font-label-mono text-[11px] text-outline">// TOP 4 EXTRACTED NODES</span>
+</div>
+<span class="inline-flex items-center gap-1 font-label-mono text-[11px] text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Cross-Encoder Reranked
+          </span>
+</div>
+<!-- Citation Card 1 -->
+<div class="source-card bg-surface-container-low rounded-xl p-space-lg transition-all duration-200 hover:bg-surface-container shadow-sm group" id="source-card-1">
+<div class="flex items-start justify-between gap-space-sm mb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-label-mono text-xs font-bold">[1]</span>
+<span class="font-label-mono text-label-mono text-tertiary">CNR: 1988-CA1-76421</span>
+</div>
+<div class="flex items-center gap-1 font-label-mono text-label-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+<span>cos sim:</span>
+<span class="font-bold">0.968</span>
+</div>
+</div>
+<h3 class="font-headline-md text-headline-sm text-on-surface group-hover:text-primary transition-colors">
+            Redgrave v. Boston Symphony Orchestra, Inc.
+          </h3>
+<p class="font-label-mono text-code-sm text-outline mt-0.5">U.S. Court of Appeals, First Circuit · August 31, 1988</p>
+<div class="mt-space-md p-space-sm rounded bg-surface-container-lowest font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            “Promissory estoppel requires unequivocal evidence that the promisor intended to induce action of a definite and substantial character on the part of the promisee... consequential loss of professional opportunities constitutes actionable reliance.”
+          </div>
+<!-- Cosine bar & deep details toggle -->
+<div class="mt-space-md flex items-center justify-between pt-space-xs">
+<div class="w-32 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 96.8%;"></div>
+</div>
+<a class="font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors flex items-center gap-0.5" href="https://law.justia.com" rel="noopener noreferrer" target="_blank">
+<span>Reporter 855 F.2d 888</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</a>
+</div>
+</div>
+<!-- Citation Card 2 -->
+<div class="source-card bg-surface-container-low rounded-xl p-space-lg transition-all duration-200 hover:bg-surface-container shadow-sm group" id="source-card-2">
+<div class="flex items-start justify-between gap-space-sm mb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-label-mono text-xs font-bold">[2]</span>
+<span class="font-label-mono text-label-mono text-tertiary">CNR: 1965-WISC-26 Wis. 2d 683</span>
+</div>
+<div class="flex items-center gap-1 font-label-mono text-label-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+<span>cos sim:</span>
+<span class="font-bold">0.941</span>
+</div>
+</div>
+<h3 class="font-headline-md text-headline-sm text-on-surface group-hover:text-primary transition-colors">
+            Hoffman v. Red Owl Stores, Inc.
+          </h3>
+<p class="font-label-mono text-code-sm text-outline mt-0.5">Supreme Court of Wisconsin · March 2, 1965</p>
+<div class="mt-space-md p-space-sm rounded bg-surface-container-lowest font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            “Section 90 of Restatement (First) of Contracts does not mandate that the promise giving rise to the cause of action be so comprehensive as to meet the requirements of an offer in an enforceable bilateral agreement.”
+          </div>
+<div class="mt-space-md flex items-center justify-between pt-space-xs">
+<div class="w-32 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 94.1%;"></div>
+</div>
+<a class="font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors flex items-center gap-0.5" href="https://law.justia.com" rel="noopener noreferrer" target="_blank">
+<span>Reporter 133 N.W.2d 267</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</a>
+</div>
+</div>
+<!-- Citation Card 3 -->
+<div class="source-card bg-surface-container-low rounded-xl p-space-lg transition-all duration-200 hover:bg-surface-container shadow-sm group" id="source-card-3">
+<div class="flex items-start justify-between gap-space-sm mb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-label-mono text-xs font-bold">[3]</span>
+<span class="font-label-mono text-label-mono text-tertiary">CNR: 1991-CA7-923 F.2d 566</span>
+</div>
+<div class="flex items-center gap-1 font-label-mono text-label-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+<span>cos sim:</span>
+<span class="font-bold">0.915</span>
+</div>
+</div>
+<h3 class="font-headline-md text-headline-sm text-on-surface group-hover:text-primary transition-colors">
+            D&amp;G Stout, Inc. v. Bacardi Imports, Inc.
+          </h3>
+<p class="font-label-mono text-code-sm text-outline mt-0.5">U.S. Court of Appeals, Seventh Circuit · January 22, 1991</p>
+<div class="mt-space-md p-space-sm rounded bg-surface-container-lowest font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            “The expectation damages of anticipated lost profits were unrecoverable without an executed agreement, but reliance damages covering lost leverage and enterprise devaluation were fully cognizable.”
+          </div>
+<div class="mt-space-md flex items-center justify-between pt-space-xs">
+<div class="w-32 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 91.5%;"></div>
+</div>
+<a class="font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors flex items-center gap-0.5" href="https://law.justia.com" rel="noopener noreferrer" target="_blank">
+<span>Reporter 923 F.2d 566</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</a>
+</div>
+</div>
+<!-- Citation Card 4 -->
+<div class="source-card bg-surface-container-low rounded-xl p-space-lg transition-all duration-200 hover:bg-surface-container shadow-sm group" id="source-card-4">
+<div class="flex items-start justify-between gap-space-sm mb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-label-mono text-xs font-bold">[4]</span>
+<span class="font-label-mono text-label-mono text-tertiary">CNR: 1950-CAL-35 Cal. 2d 621</span>
+</div>
+<div class="flex items-center gap-1 font-label-mono text-label-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+<span>cos sim:</span>
+<span class="font-bold">0.897</span>
+</div>
+</div>
+<h3 class="font-headline-md text-headline-sm text-on-surface group-hover:text-primary transition-colors">
+            Monarco v. Lo Greco
+          </h3>
+<p class="font-label-mono text-code-sm text-outline mt-0.5">Supreme Court of California · June 23, 1950</p>
+<div class="mt-space-md p-space-sm rounded bg-surface-container-lowest font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+            “The doctrine of estoppel to assert the statute of frauds applies either where an unconscionable injury would result from denying enforcement after one party has been induced to seriously change their position... or where unjust enrichment would result.”
+          </div>
+<div class="mt-space-md flex items-center justify-between pt-space-xs">
+<div class="w-32 bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 89.7%;"></div>
+</div>
+<a class="font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors flex items-center gap-0.5" href="https://law.justia.com" rel="noopener noreferrer" target="_blank">
+<span>Reporter 35 Cal. 2d 621</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</a>
+</div>
+</div>
+<!-- Technical Pipeline & Performance Telemetry Card -->
+<div class="w-full bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between pb-space-sm">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[20px]">memory</span>
+<span class="font-label-mono text-label-mono text-on-surface uppercase font-bold">Retrieval Telemetry</span>
+</div>
+<span class="font-label-mono text-label-mono text-tertiary bg-tertiary-container/10 px-2 py-0.5 rounded-full">
+              P95: 410ms · ACTUAL: 349ms
+            </span>
+</div>
+<!-- Execution steps with latency tickers -->
+<div class="flex flex-col gap-space-sm mt-space-md">
+<!-- Step 1 -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-low text-xs">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-mono text-outline">01</span>
+<div class="truncate">
+<div class="font-label-ui text-on-surface truncate">Hybrid Semantic + Lexical Retrieval</div>
+<div class="font-label-mono text-[10px] text-outline truncate">text-embedding-3-large (1536d) + BM25 Okapi</div>
+</div>
+</div>
+<span class="font-label-mono text-tertiary shrink-0 ml-2 font-medium">28 ms</span>
+</div>
+<!-- Step 2 -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-low text-xs">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-mono text-outline">02</span>
+<div class="truncate">
+<div class="font-label-ui text-on-surface truncate">Graph Citation Expansion</div>
+<div class="font-label-mono text-[10px] text-outline truncate">Shepard's / Case Law Knowledge Graph traversal</div>
+</div>
+</div>
+<span class="font-label-mono text-tertiary shrink-0 ml-2 font-medium">64 ms</span>
+</div>
+<!-- Step 3 -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-low text-xs">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-mono text-outline">03</span>
+<div class="truncate">
+<div class="font-label-ui text-on-surface truncate">Cross-Encoder Neural Rerank</div>
+<div class="font-label-mono text-[10px] text-outline truncate">Cohere Rerank v3.5 (50 candidates → Top 4)</div>
+</div>
+</div>
+<span class="font-label-mono text-tertiary shrink-0 ml-2 font-medium">112 ms</span>
+</div>
+<!-- Step 4 -->
+<div class="flex items-center justify-between p-space-sm rounded bg-surface-container-low text-xs">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="font-label-mono text-outline">04</span>
+<div class="truncate">
+<div class="font-label-ui text-on-surface truncate">NeMo Grounding &amp; Hallucination Guard</div>
+<div class="font-label-mono text-[10px] text-outline truncate">SelfCheckGPT + Automated Contradiction Test</div>
+</div>
+</div>
+<span class="font-label-mono text-tertiary shrink-0 ml-2 font-medium">145 ms</span>
+</div>
+</div>
+<!-- Token consumption overview -->
+<div class="mt-space-md pt-space-sm grid grid-cols-2 gap-space-sm font-label-mono text-code-sm">
+<div class="p-space-sm rounded bg-surface-container-low">
+<span class="text-outline text-[10px] uppercase block">Prompt Tokens</span>
+<span class="text-on-surface font-semibold text-body-sm">1,420 tk</span>
+</div>
+<div class="p-space-sm rounded bg-surface-container-low">
+<span class="text-outline text-[10px] uppercase block">Synthesized Output</span>
+<span class="text-primary font-semibold text-body-sm">680 tk (94.2 t/s)</span>
+</div>
+</div>
+<!-- Micro Sparkline SVG -->
+<div class="mt-space-md flex flex-col gap-1">
+<div class="flex items-center justify-between font-label-mono text-[10px] text-outline">
+<span>LATENCY TRACE DISTRIBUTION</span>
+<span>100% SUCCESSFUL COMPLETION</span>
+</div>
+<svg class="w-full h-8 text-tertiary" fill="none" preserveaspectratio="none" viewbox="0 0 320 32">
+<path d="M0,28 L30,26 L60,27 L90,14 L120,24 L150,22 L180,6 L210,18 L240,20 L270,12 L300,16 L320,10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"></path>
+<path d="M0,28 L30,26 L60,27 L90,14 L120,24 L150,22 L180,6 L210,18 L240,20 L270,12 L300,16 L320,10 L320,32 L0,32 Z" fill="currentColor" fill-opacity="0.08"></path>
+</svg>
+</div>
+</div>
+</aside>
+</div>
+</div>
+<!-- Inline Micro-interactions Script -->
+<script>
+    (function initLegalSynthesis() {
+      // Citation Hover & Click Linking
+      const citeButtons = document.querySelectorAll('.cite-ref');
+      const sourceCards = document.querySelectorAll('.source-card');
+
+      citeButtons.forEach(btn => {
+        btn.addEventListener('mouseenter', () => {
+          const citeId = btn.getAttribute('data-cite');
+          const targetCard = document.getElementById('source-card-' + citeId);
+          if (targetCard) {
+            targetCard.classList.add('bg-surface-container-highest', 'ring-1', 'ring-primary');
+          }
+        });
+
+        btn.addEventListener('mouseleave', () => {
+          const citeId = btn.getAttribute('data-cite');
+          const targetCard = document.getElementById('source-card-' + citeId);
+          if (targetCard) {
+            targetCard.classList.remove('bg-surface-container-highest', 'ring-1', 'ring-primary');
+          }
+        });
+
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const citeId = btn.getAttribute('data-cite');
+          const targetCard = document.getElementById('source-card-' + citeId);
+          if (targetCard) {
+            targetCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            targetCard.classList.add('bg-surface-container-highest', 'scale-[1.02]');
+            setTimeout(() => {
+              targetCard.classList.remove('scale-[1.02]');
+            }, 600);
+          }
+        });
+      });
+
+      // Highlight Grounding Spans Toggle
+      const toggleSpansBtn = document.getElementById('toggle-spans');
+      let highlightsActive = true;
+
+      if (toggleSpansBtn) {
+        toggleSpansBtn.addEventListener('click', () => {
+          highlightsActive = !highlightsActive;
+          const spans = document.querySelectorAll('.grounded-span');
+          spans.forEach(s => {
+            if (highlightsActive) {
+              s.classList.add('bg-primary/10');
+            } else {
+              s.classList.remove('bg-primary/10');
+            }
+          });
+          toggleSpansBtn.classList.toggle('text-primary');
+        });
+      }
+
+      // Copy Synthesis Text Interaction
+      const copyBtn = document.getElementById('copy-synthesis-btn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          const originalText = copyBtn.innerHTML;
+          navigator.clipboard.writeText(
+            "Under what conditions does the doctrine of promissory estoppel override formal statutory writing requirements in commercial construction disputes?\n\nJurisprudential consensus dictates that promissory estoppel requires: (1) Definite Promise, (2) Reasonable Detrimental Reliance, and (3) Grave Injustice. Under Restatement (Second) of Contracts § 139 and leading precedent (Monarco v. Lo Greco; Redgrave; Hoffman), partial performance coupled with unconscionable injury pierces writing mandates."
+          ).then(() => {
+            copyBtn.innerHTML = '<span class="material-symbols-outlined text-[16px] text-tertiary">check</span> Copied!';
+            setTimeout(() => {
+              copyBtn.innerHTML = originalText;
+            }, 2000);
+          });
+        });
+      }
+    })();
+  </script>
+</div></main><footer class="w-full bg-surface-container-lowest py-space-lg"><div class="w-full px-gutter lg:px-gutter-lg flex flex-col md:flex-row items-center justify-between gap-space-md text-center md:text-left"><div class="flex flex-col gap-space-xs"><p class="font-label-mono text-label-mono text-outline">Engineered by Senior AI Systems Architect · Built with Hybrid Vector + BM25 + Cross-Encoder Rerank · Dual-Licensed MIT / Apache 2.0</p><p class="font-body-sm text-body-sm text-surface-bright">Autonomous Jurisprudence Engine · Real-Time Statutory Contextual Retrieval System</p></div><div class="flex items-center gap-space-lg"><a class="font-label-mono text-label-mono text-on-surface-variant hover:text-primary transition-colors" data-path="architecture-paper" href="#">Architecture Documentation</a><span class="font-label-mono text-label-mono text-outline">Deterministic Citations v1.4.2</span></div></div></footer></body></html>

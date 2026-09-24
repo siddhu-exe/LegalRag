@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><title>LegalRAG — Autonomous Judicial Retrieval &amp; Grounded Synthesis</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Newsreader:ital,opsz,wght@0,6..72,400;1,6..72,400&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface-container-lowest": "#0b0e14", "secondary-fixed": "#cee5ff", "surface-container-highest": "#32353c", "on-tertiary-fixed-variant": "#005047", "surface-variant": "#32353c", "tertiary-fixed-dim": "#3cddc7", "outline": "#99907c", "error-container": "#93000a", "primary": "#f2ca50", "surface": "#10131a", "on-primary": "#3c2f00", "surface-dim": "#10131a", "inverse-surface": "#e1e2eb", "on-tertiary-fixed": "#00201c", "surface-container-low": "#191c22", "primary-container": "#d4af37", "on-tertiary": "#003731", "on-secondary-container": "#9db8d5", "on-error": "#690005", "on-secondary-fixed": "#001d33", "outline-variant": "#4d4635", "inverse-on-surface": "#2e3037", "on-secondary": "#16324a", "on-background": "#e1e2eb", "tertiary-fixed": "#62fae3", "secondary-fixed-dim": "#aec9e7", "surface-bright": "#363940", "secondary": "#aec9e7", "surface-container-high": "#272a31", "on-tertiary-container": "#004f46", "primary-fixed": "#ffe088", "on-primary-fixed-variant": "#574500", "on-primary-container": "#554300", "primary-fixed-dim": "#e9c349", "secondary-container": "#2e4962", "error": "#ffb4ab", "inverse-primary": "#735c00", "surface-tint": "#e9c349", "on-secondary-fixed-variant": "#2e4962", "on-error-container": "#ffdad6", "on-surface-variant": "#d0c5af", "on-primary-fixed": "#241a00", "on-surface": "#e1e2eb", "surface-container": "#1d2026", "background": "#10131a", "tertiary": "#48e5d0", "tertiary-container": "#11c9b4" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1.5rem", "gutter": "1.5rem", "space-sm": "0.5rem", "space-md": "1rem", "margin": "2rem", "space-xs": "0.25rem", "margin-lg": "4rem", "margin-sm": "1.25rem", "gutter-sm": "1rem", "gutter-lg": "2rem", "space-xl": "2.5rem" }, "fontFamily": { "body-lg": [ "Inter" ], "headline-sm": [ "Inter" ], "body-md": [ "Inter" ], "label-ui": [ "Inter" ], "headline-lg": [ "Newsreader" ], "citation-quote": [ "Newsreader" ], "body-sm": [ "Inter" ], "display-lg": [ "Newsreader" ], "headline-lg-mobile": [ "Newsreader" ], "code-sm": [ "JetBrains Mono" ], "label-mono": [ "JetBrains Mono" ], "headline-md": [ "Newsreader" ], "display-lg-mobile": [ "Newsreader" ] }, "fontSize": { "body-lg": [ "17px", { "lineHeight": "28px", "letterSpacing": "-0.002em", "fontWeight": "400" } ], "headline-sm": [ "20px", { "lineHeight": "28px", "letterSpacing": "-0.005em", "fontWeight": "600" } ], "body-md": [ "15px", { "lineHeight": "24px", "fontWeight": "400" } ], "label-ui": [ "12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" } ], "headline-lg": [ "40px", { "lineHeight": "48px", "letterSpacing": "-0.015em", "fontWeight": "400" } ], "citation-quote": [ "18px", { "lineHeight": "28px", "letterSpacing": "0.01em", "fontWeight": "400" } ], "body-sm": [ "13px", { "lineHeight": "20px", "fontWeight": "400" } ], "display-lg": [ "56px", { "lineHeight": "64px", "letterSpacing": "-0.02em", "fontWeight": "400" } ], "headline-lg-mobile": [ "28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "400" } ], "code-sm": [ "12px", { "lineHeight": "18px", "fontWeight": "400" } ], "label-mono": [ "11px", { "lineHeight": "16px", "letterSpacing": "0.06em", "fontWeight": "500" } ], "headline-md": [ "28px", { "lineHeight": "36px", "letterSpacing": "-0.01em", "fontWeight": "400" } ], "display-lg-mobile": [ "36px", { "lineHeight": "44px", "letterSpacing": "-0.01em", "fontWeight": "400" } ] } } } };</script></head><body class="bg-surface font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container min-h-screen flex flex-col justify-between"><header class="fixed top-0 left-0 right-0 z-50 bg-surface-container-lowest/80 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.4)]"><div class="h-16 w-full px-gutter lg:px-gutter-lg flex items-center justify-between"><div class="flex items-center gap-space-md"><a class="flex items-center gap-space-sm group" data-path="query-console" href="#"><img alt="LegalRAG Emblem" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1WlvEZ5amnMqWyETGznAGy-VcQohpSP25lPjX2CfOvUuxk1a8imVu9ClPCEjGzZchkKRqYicY88URhTorucxgQx5ZkH_S4HtLlsCtCTJTna2F7GTeATXPqKt3F8Sjrxq7GIRlLIEuXOi1zdOpmoTB2SxR7_1sW1u0TsF87d7G3alALy44iPFNyrRybe_bXDy538owMGTKP7kUglu4rA8iDJGQ4zAc7VeKRqNYZNGrMUO0Mb8Cka_BJ982A"/><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight group-hover:text-primary transition-colors">LegalRAG</span></a><div class="hidden sm:flex items-center gap-space-xs px-space-sm py-space-xs rounded-full bg-surface-container-low"><span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span><span class="font-label-mono text-label-mono text-outline uppercase tracking-wider">RESEARCH PROTOTYPE / PORTFOLIO ARTIFACT</span></div></div><nav class="hidden md:flex items-center gap-gutter lg:gap-gutter-lg" data-active-classes="text-primary border-b border-primary font-medium"><a aria-current="page" class="transition-colors py-1 text-primary border-b border-primary font-medium" data-path="query-console" href="#">01. Query Console</a><a class="font-label-mono text-label-mono text-on-surface-variant hover:text-on-surface transition-colors py-1" data-path="grounded-synthesis" href="#">02. Grounded Synthesis</a></nav><div class="flex items-center gap-space-md"><span class="hidden lg:inline-flex items-center font-label-mono text-label-mono text-tertiary bg-surface-container-low px-space-sm py-space-xs rounded-full">v1.4.2 · arXiv:2408.xxxxx</span><a class="hidden sm:inline-flex items-center font-label-ui text-label-ui text-on-surface-variant hover:text-primary transition-colors" data-path="architecture-paper" href="#">View Paper / Architecture</a><a class="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors flex items-center justify-center" href="https://github.com" rel="noopener noreferrer" target="_blank" title="Source Code &amp; Repositories"><span class="material-symbols-outlined text-[20px]">code</span></a><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-16 bg-surface min-h-[calc(100vh-4rem)] flex-1"><div class="flex flex-col w-full">
+<!-- Atmospheric Glow & Architectural Grid Background -->
+<div class="relative w-full overflow-hidden">
+<!-- Ambient evidentiary glow blobs contained safely in section bounds -->
+<div class="absolute top-12 left-1/2 -translate-x-1/2 w-[840px] h-[380px] bg-primary/5 rounded-full blur-[140px] pointer-events-none -z-10"></div>
+<div class="absolute top-80 right-1/4 w-[360px] h-[360px] bg-tertiary/5 rounded-full blur-[120px] pointer-events-none -z-10"></div>
+<!-- Editorial Lead Container -->
+<div class="w-full max-w-[1240px] mx-auto px-gutter lg:px-gutter-lg pt-12 lg:pt-16 pb-12 flex flex-col items-center text-center">
+<!-- System Pre-flight Research Badge -->
+<div class="inline-flex items-center gap-space-sm px-space-md py-1.5 rounded-full bg-surface-container-low shadow-sm mb-6 animate-pulse">
+<span class="w-2 h-2 rounded-full bg-primary shadow-[0_0_10px_#f2ca50]"></span>
+<span class="font-label-mono text-label-mono text-on-surface-variant tracking-wider uppercase">
+          PRECISION RETRIEVAL-AUGMENTED GENERATION · JURISPRUDENCE &amp; STATUTE GRAPH
+        </span>
+<span class="font-label-mono text-label-mono text-tertiary-fixed-dim bg-surface-container px-2 py-0.5 rounded-full">
+          DUAL-INDEX ACTIVE
+        </span>
+</div>
+<!-- Main Headline: Editorial Serif Dominance -->
+<h1 class="font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface tracking-tight max-w-4xl text-balance">
+        Autonomous Legal Reasoning with <span class="italic text-primary">Verifiable</span> Case Law.
+      </h1>
+<!-- Precise Scientific Abstract -->
+<p class="mt-6 font-body-lg text-body-lg text-on-surface-variant max-w-2xl leading-relaxed text-balance">
+        LegalRAG bridges dense statutory corpora and judicial precedent through hybrid sparse-dense embedding, multi-hop citation graph traversal, and zero-hallucination grounded synthesis.
+      </p>
+<!-- Centerpiece: Command Query Console Card -->
+<div class="w-full max-w-3xl mt-10 text-left">
+<div class="relative bg-surface-container-low rounded-xl shadow-2xl p-space-md lg:p-space-lg transition-all duration-300 focus-within:shadow-[0_0_40px_-5px_rgba(212,175,55,0.18)] focus-within:bg-surface-container">
+<!-- Query Header Bar -->
+<div class="flex items-center justify-between pb-3 mb-3 border-b border-surface-container-highest/60">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-[18px]">gavel</span>
+<span class="font-label-mono text-label-mono text-outline uppercase">Judicial Inquiry Contextualizer</span>
+</div>
+<div class="flex items-center gap-space-sm font-label-mono text-label-mono text-outline">
+<span class="inline-flex items-center gap-1 text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                SCOTUS + 1st–11th CIR
+              </span>
+<span class="text-surface-bright">•</span>
+<span class="text-on-surface-variant">Chunk v3.2</span>
+</div>
+</div>
+<!-- Interactive Textarea -->
+<label class="sr-only" for="legal-query-input">Enter legal research question</label>
+<div class="relative">
+<textarea class="w-full bg-transparent text-on-surface font-body-lg text-body-lg placeholder:text-surface-bright resize-none focus:outline-none focus:ring-0 leading-relaxed" id="legal-query-input" placeholder="Under what conditions does the doctrine of promissory estoppel override formal statutory writing requirements in commercial construction disputes?" rows="3"></textarea>
+</div>
+<!-- Parameter Chips Row + Execution Button -->
+<div class="mt-4 pt-4 border-t border-surface-container-highest/40 flex flex-wrap items-center justify-between gap-space-md">
+<!-- Contextual Micro-Badges -->
+<div class="flex flex-wrap items-center gap-2">
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-high text-on-surface-variant text-label-mono font-label-mono">
+<span class="material-symbols-outlined text-[14px] text-outline">account_balance</span>
+<span>Jurisdiction: Federal &amp; SCOTUS</span>
+</div>
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-high text-on-surface-variant text-label-mono font-label-mono">
+<span class="material-symbols-outlined text-[14px] text-primary">verified_user</span>
+<span>Min Conf: <strong class="text-primary font-medium">0.92</strong></span>
+</div>
+<div class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-high text-on-surface-variant text-label-mono font-label-mono">
+<span class="material-symbols-outlined text-[14px] text-tertiary">tune</span>
+<span>BGE-Reranker-Large</span>
+</div>
+</div>
+<!-- High-Craft CTA Button -->
+<div class="flex items-center gap-space-sm ml-auto">
+<span class="hidden md:inline font-label-mono text-label-mono text-outline">
+<kbd class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant">⌘</kbd> + <kbd class="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface-variant">Enter</kbd>
+</span>
+<button class="group relative inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg bg-primary font-label-ui text-label-ui text-on-primary font-semibold tracking-wide overflow-hidden shadow-lg shadow-primary/20 hover:bg-primary-fixed transition-all active:scale-[0.98]" id="run-query-button" type="button">
+<!-- Shimmer highlight bar -->
+<span class="absolute top-0 left-[-100%] w-1/2 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 group-hover:left-[200%] transition-all duration-1000"></span>
+<span>Ask LegalRAG</span>
+<span class="material-symbols-outlined text-[18px] group-hover:translate-x-0.5 transition-transform">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Live Retrieval Progress Simulator Strip (Hidden by default, triggered on run) -->
+<div class="hidden mt-3 px-space-md py-2.5 rounded-lg bg-surface-container-lowest shadow-inner flex items-center justify-between" id="retrieval-stream-status">
+<div class="flex items-center gap-space-sm">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<span class="font-label-mono text-label-mono text-on-surface">Vector KNN traversal (Dense)... 240 candidates pruned</span>
+</div>
+<span class="font-label-mono text-label-mono text-outline">182ms</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Editorial Section: Frequently Inquired Precedents -->
+<section class="w-full max-w-[1240px] mx-auto px-gutter lg:px-gutter-lg py-12">
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-8">
+<div>
+<div class="flex items-center gap-2 mb-2">
+<span class="font-label-mono text-label-mono text-primary uppercase tracking-wider">01 // BENCHMARK TEST VECTORS</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-surface">
+          Frequently Inquired Precedents
+        </h2>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant max-w-md mt-2 md:mt-0">
+        Pre-indexed federal litigation briefs with deterministic statutory cross-references, real-time citation trees, and confidence rankings.
+      </p>
+</div>
+<!-- 3 Bento-Style Legal Query Cards -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+<!-- Card 1 -->
+<div class="query-card group flex flex-col justify-between p-space-lg rounded-xl bg-surface-container-low shadow-md hover:bg-surface-container hover:shadow-xl transition-all duration-200 cursor-pointer" data-inquiry="Standard of strict liability for autonomous algorithmic agent torts under Section 230 safe harbors.">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="px-2.5 py-0.5 rounded-full font-label-mono text-label-mono bg-surface-container text-tertiary">
+              Cyber &amp; Tort
+            </span>
+<span class="font-label-mono text-label-mono text-outline group-hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">library_books</span>
+              14 Relevant Precedents
+            </span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface group-hover:text-primary transition-colors leading-snug">
+            Standard of strict liability for autonomous algorithmic agent torts under Section 230 safe harbors.
+          </h3>
+<p class="mt-3 font-body-sm text-body-sm text-on-surface-variant line-clamp-3">
+            Explores 47 U.S.C. § 230(c)(1) limits when algorithmic output transforms passive hosting into active substantive publication or tortious product conduct.
+          </p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-highest/60 flex items-center justify-between">
+<span class="font-label-mono text-label-mono text-outline">Mean Cosine: 0.942</span>
+<span class="inline-flex items-center gap-1 font-label-ui text-label-ui text-primary group-hover:translate-x-1 transition-transform">
+            Execute Vector
+            <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="query-card group flex flex-col justify-between p-space-lg rounded-xl bg-surface-container-low shadow-md hover:bg-surface-container hover:shadow-xl transition-all duration-200 cursor-pointer" data-inquiry="Application of the business judgment rule in derivative suits involving Delaware LLC officer fiduciary breaches.">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="px-2.5 py-0.5 rounded-full font-label-mono text-label-mono bg-surface-container text-primary">
+              Corporate Governance
+            </span>
+<span class="font-label-mono text-label-mono text-outline group-hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">account_tree</span>
+              28 Citations
+            </span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface group-hover:text-primary transition-colors leading-snug">
+            Application of the business judgment rule in derivative suits involving Delaware LLC officer fiduciary breaches.
+          </h3>
+<p class="mt-3 font-body-sm text-body-sm text-on-surface-variant line-clamp-3">
+            Traversing 6 Del. C. § 18-1101 contractual modification boundaries, duty of loyalty waiver thresholds, and demand futility tests under Court of Chancery standards.
+          </p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-highest/60 flex items-center justify-between">
+<span class="font-label-mono text-label-mono text-outline">Mean Cosine: 0.918</span>
+<span class="inline-flex items-center gap-1 font-label-ui text-label-ui text-primary group-hover:translate-x-1 transition-transform">
+            Execute Vector
+            <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="query-card group flex flex-col justify-between p-space-lg rounded-xl bg-surface-container-low shadow-md hover:bg-surface-container hover:shadow-xl transition-all duration-200 cursor-pointer" data-inquiry="Admissibility criteria for synthetic forensic evidence under Daubert v. Merrell Dow Pharmaceuticals.">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="px-2.5 py-0.5 rounded-full font-label-mono text-label-mono bg-surface-container text-secondary">
+              Evidence / Criminal
+            </span>
+<span class="font-label-mono text-label-mono text-outline group-hover:text-primary transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">balance</span>
+              9 Leading Rulings
+            </span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface group-hover:text-primary transition-colors leading-snug">
+            Admissibility criteria for synthetic forensic evidence under Daubert v. Merrell Dow Pharmaceuticals.
+          </h3>
+<p class="mt-3 font-body-sm text-body-sm text-on-surface-variant line-clamp-3">
+            Federal Rule of Evidence 702 peer review metrics, known error rates in generative reconstruction, and cross-examination guarantees under Sixth Amendment Confrontation.
+          </p>
+</div>
+<div class="mt-6 pt-4 border-t border-surface-container-highest/60 flex items-center justify-between">
+<span class="font-label-mono text-label-mono text-outline">Mean Cosine: 0.965</span>
+<span class="inline-flex items-center gap-1 font-label-ui text-label-ui text-primary group-hover:translate-x-1 transition-transform">
+            Execute Vector
+            <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Interactive Dual-Pane Architecture Preview Drawer / Visual Teaser -->
+<section class="w-full max-w-[1240px] mx-auto px-gutter lg:px-gutter-lg pb-12">
+<div class="bg-surface-container-lowest rounded-xl p-6 lg:p-8 shadow-2xl relative overflow-hidden">
+<div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-6 border-b border-surface-container-highest/50">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+<span class="font-label-mono text-label-mono text-primary">LIVE INGESTION &amp; VERIFICATION TELEMETRY</span>
+</div>
+<h4 class="font-headline-md text-headline-md text-on-surface">Multi-Stage Grounding Pipeline Active</h4>
+</div>
+<div class="flex items-center gap-space-sm">
+<a class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-ui text-label-ui transition-colors" data-path="grounded-synthesis" href="#">
+<span class="material-symbols-outlined text-primary text-[18px]">verified</span>
+            Inspect Sample Grounded Synthesis
+          </a>
+</div>
+</div>
+<!-- Real-time Visual Micro Pipeline Chart -->
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-6">
+<!-- Stage 1 -->
+<div class="p-4 rounded-lg bg-surface-container-low">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-mono text-label-mono text-outline">STAGE 01</span>
+<span class="font-label-mono text-label-mono text-tertiary">38ms</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface text-[16px] leading-snug">Hybrid Dense/Sparse</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">ColBERTv2 + BM25 reciprocal rank fusion across title &amp; syllabus chunks.</p>
+<div class="w-full bg-surface-container-highest h-1 rounded-full mt-4 overflow-hidden">
+<div class="bg-primary h-full w-[85%]"></div>
+</div>
+</div>
+<!-- Stage 2 -->
+<div class="p-4 rounded-lg bg-surface-container-low">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-mono text-label-mono text-outline">STAGE 02</span>
+<span class="font-label-mono text-label-mono text-tertiary">112ms</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface text-[16px] leading-snug">Citation Graph Walk</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">2-hop Shepard’s positive treatment verification &amp; circuit divergence checks.</p>
+<div class="w-full bg-surface-container-highest h-1 rounded-full mt-4 overflow-hidden">
+<div class="bg-primary h-full w-[94%]"></div>
+</div>
+</div>
+<!-- Stage 3 -->
+<div class="p-4 rounded-lg bg-surface-container-low">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-mono text-label-mono text-outline">STAGE 03</span>
+<span class="font-label-mono text-label-mono text-tertiary">140ms</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface text-[16px] leading-snug">Cross-Encoder Re-Rank</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">High-order transformer re-scoring of extracted judicial rationale paragraphs.</p>
+<div class="w-full bg-surface-container-highest h-1 rounded-full mt-4 overflow-hidden">
+<div class="bg-tertiary h-full w-[98%]"></div>
+</div>
+</div>
+<!-- Stage 4 -->
+<div class="p-4 rounded-lg bg-surface-container-low">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label-mono text-label-mono text-outline">STAGE 04</span>
+<span class="font-label-mono text-label-mono text-tertiary">145ms</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface text-[16px] leading-snug">Deterministic Synthesis</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Constrained token generator with zero un-cited substantive propositions.</p>
+<div class="w-full bg-surface-container-highest h-1 rounded-full mt-4 overflow-hidden">
+<div class="bg-primary h-full w-[100%]"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Technical Architecture Teaser Ribbon -->
+<section class="w-full bg-surface-container-lowest/70 backdrop-blur-sm border-t border-surface-container-highest/30 py-8">
+<div class="w-full max-w-[1240px] mx-auto px-gutter lg:px-gutter-lg">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center sm:text-left">
+<!-- Metric 1 -->
+<div class="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[22px]">dataset</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md text-on-surface font-semibold">4.2M</div>
+<div class="font-label-ui text-label-ui text-on-surface-variant">Case Law &amp; Statutory Chunks</div>
+<div class="font-label-mono text-label-mono text-outline mt-0.5">Title 11, Title 28, Federal Digest</div>
+</div>
+</div>
+<!-- Metric 2 -->
+<div class="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[22px]">fact_check</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md text-on-surface font-semibold">99.4%</div>
+<div class="font-label-ui text-label-ui text-on-surface-variant">Attribution Fidelity Score</div>
+<div class="font-label-mono text-label-mono text-outline mt-0.5">Strict token hallucination penalty</div>
+</div>
+</div>
+<!-- Metric 3 -->
+<div class="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[22px]">speed</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md text-on-surface font-semibold">&lt;450ms</div>
+<div class="font-label-ui text-label-ui text-on-surface-variant">P95 Hybrid Retrieval Latency</div>
+<div class="font-label-mono text-label-mono text-outline mt-0.5">Cross-encoder reranked pipeline</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<script>
+  // Dynamic Inquiry Injection & Submission Simulation
+  document.addEventListener('DOMContentLoaded', () => {
+    const textarea = document.getElementById('legal-query-input');
+    const runBtn = document.getElementById('run-query-button');
+    const streamStatus = document.getElementById('retrieval-stream-status');
+    const exampleCards = document.querySelectorAll('.query-card');
+
+    exampleCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const text = card.getAttribute('data-inquiry');
+        if (textarea && text) {
+          textarea.value = text;
+          textarea.focus();
+          // Subtle pulse animation on input wrapper
+          textarea.parentElement.parentElement.classList.add('ring-1', 'ring-primary');
+          setTimeout(() => {
+            textarea.parentElement.parentElement.classList.remove('ring-1', 'ring-primary');
+          }, 600);
+        }
+      });
+    });
+
+    const triggerSearch = () => {
+      if (!textarea) return;
+      if (!textarea.value.trim()) {
+        textarea.value = "Under what conditions does the doctrine of promissory estoppel override formal statutory writing requirements in commercial construction disputes?";
+      }
+      
+      if (streamStatus) {
+        streamStatus.classList.remove('hidden');
+        const textSpan = streamStatus.querySelector('span:nth-child(2)');
+        const timeSpan = streamStatus.querySelector('span:last-child');
+        
+        let step = 0;
+        const sequence = [
+          { label: "Vector KNN traversal (Dense)... 240 candidates pruned", time: "118ms" },
+          { label: "BM25 Sparse Lexical matching against 4.2M statutory indices...", time: "224ms" },
+          { label: "Reciprocal Rank Fusion complete. Cross-encoder scoring top 12 citations...", time: "389ms" },
+          { label: "Grounding verified. Navigating to Grounded Synthesis view...", time: "442ms" }
+        ];
+
+        const interval = setInterval(() => {
+          if (step < sequence.length) {
+            textSpan.textContent = sequence[step].label;
+            timeSpan.textContent = sequence[step].time;
+            step++;
+          } else {
+            clearInterval(interval);
+            // Seamless mock transition
+            const synthLink = document.querySelector('[data-path="grounded-synthesis"]');
+            if (synthLink) {
+              synthLink.click();
+            }
+          }
+        }, 320);
+      }
+    };
+
+    if (runBtn) {
+      runBtn.addEventListener('click', triggerSearch);
+    }
+
+    if (textarea) {
+      textarea.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          triggerSearch();
+        }
+      });
+    }
+  });
+</script></main><footer class="w-full bg-surface-container-lowest py-space-lg"><div class="w-full px-gutter lg:px-gutter-lg flex flex-col md:flex-row items-center justify-between gap-space-md text-center md:text-left"><div class="flex flex-col gap-space-xs"><p class="font-label-mono text-label-mono text-outline">Engineered by Senior AI Systems Architect · Built with Hybrid Vector + BM25 + Cross-Encoder Rerank · Dual-Licensed MIT / Apache 2.0</p><p class="font-body-sm text-body-sm text-surface-bright">Autonomous Jurisprudence Engine · Real-Time Statutory Contextual Retrieval System</p></div><div class="flex items-center gap-space-lg"><a class="font-label-mono text-label-mono text-on-surface-variant hover:text-primary transition-colors" data-path="architecture-paper" href="#">Architecture Documentation</a><span class="font-label-mono text-label-mono text-outline">Deterministic Citations v1.4.2</span></div></div></footer></body></html>
