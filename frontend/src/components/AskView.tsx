@@ -339,7 +339,7 @@ export const AskView: React.FC<AskViewProps> = ({
                 </div>
                 <p className="font-sans leading-relaxed">{error}</p>
                 <p className="font-mono text-[11px] text-red-400/80 pt-1">
-                  Ensure the selected backend is running and receptive on the target endpoint.
+                  Ensure the backend service is running and reachable on the target endpoint.
                 </p>
               </div>
             </div>

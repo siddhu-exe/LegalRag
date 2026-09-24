@@ -2,23 +2,16 @@ import React, { useState } from 'react';
 import { Header } from './components/Header';
 import { AskView } from './components/AskView';
 import { ResultsView } from './components/ResultsView';
-import { BackendTarget, ActiveView, QueryResponse } from './types';
-import { getActiveBackend, setActiveBackend } from './config';
+import { ActiveView, QueryResponse } from './types';
 import { queryLegalRag } from './api';
 
 export const App: React.FC = () => {
-  const [backend, setBackend] = useState<BackendTarget>(getActiveBackend());
   const [view, setView] = useState<ActiveView>('ask');
   const [question, setQuestion] = useState<string>('');
   const [result, setResult] = useState<QueryResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-
-  const handleBackendChange = (target: BackendTarget) => {
-    setActiveBackend(target);
-    setBackend(target);
-  };
 
   const handleSearch = async (queryText: string) => {
     setIsLoading(true);
@@ -63,11 +56,7 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200 antialiased">
-      <Header
-        backend={backend}
-        onBackendChange={handleBackendChange}
-        onNewSearch={handleNewSearch}
-      />
+      <Header onNewSearch={handleNewSearch} />
 
       <main className="flex-1">
         {view === 'ask' ? (

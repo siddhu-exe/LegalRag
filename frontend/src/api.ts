@@ -1,5 +1,5 @@
 import { QueryRequest, QueryResponse } from './types';
-import { getActiveBaseUrl, API_TIMEOUT_MS } from './config';
+import { getApiBaseUrl, API_TIMEOUT_MS } from './config';
 
 export class ApiError extends Error {
   status?: number;
@@ -13,14 +13,14 @@ export class ApiError extends Error {
 }
 
 /**
- * Executes a query against the active LegalRAG backend.
+ * Executes a query against the LegalRAG backend.
  * AbortSignal supports user-triggered cancellation.
  */
 export async function queryLegalRag(
   req: QueryRequest,
   signal?: AbortSignal
 ): Promise<QueryResponse> {
-  const baseUrl = getActiveBaseUrl();
+  const baseUrl = getApiBaseUrl();
   const url = `${baseUrl.replace(/\/+$/, '')}/query`;
 
   const controller = new AbortController();

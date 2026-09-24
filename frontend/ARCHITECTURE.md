@@ -3,35 +3,27 @@
 ## 1. Overview & Positioning
 A streamlined, production-grade **React + TypeScript + Vite + Tailwind CSS** frontend for **LegalRAG** — an autonomous judicial retrieval and grounded synthesis engine over 100,000 Indian High Court judgments.
 
-Built as a clean AI Engineering portfolio showcase with a 2-page flow (**Ask** and **Results**), interactive citation grounding, compact pipeline telemetry, and a zero-reload **Local ⟷ Deployed backend switcher**.
+Built as a clean AI Engineering portfolio showcase with a 2-page flow (**Ask** and **Results**), interactive citation grounding, and compact pipeline telemetry.
 
 ---
 
 ## 2. Environment Configuration
 
-The frontend dynamically switches between a local backend and a deployed cloud backend via runtime selection persisted in `localStorage`.
+The frontend interfaces with the backend API endpoint via environment configuration.
 
 ### `.env.example`
 ```bash
-# Default active backend: "local" or "deployed"
-VITE_DEFAULT_BACKEND=local
-
-# Local FastAPI instance
-VITE_API_LOCAL=http://localhost:7860
-
-# Deployed Backend URL (Placeholder - set when production URL is available)
-VITE_API_DEPLOYED=https://your-deployed-backend-url.com
+# Backend API URL (Production URL placeholder or FastAPI endpoint)
+VITE_API_URL=https://your-deployed-backend-url.com
 
 # Client Request Timeout (in milliseconds)
 VITE_API_TIMEOUT_MS=120000
 ```
 
 ### URL Resolution Logic (`src/config.ts`)
-- `LOCAL_URL`: `import.meta.env.VITE_API_LOCAL || "http://localhost:7860"`
-- `DEPLOYED_URL`: `import.meta.env.VITE_API_DEPLOYED || ""`
-- `getActiveBaseUrl()`:
-  - If `DEPLOYED_URL` is empty or placeholder, gracefully alert or disable deployed mode.
-  - Resolves target based on user toggle (`localStorage.getItem('legalrag_backend_target') || import.meta.env.VITE_DEFAULT_BACKEND || 'local'`).
+- `API_BASE_URL`: `import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || ""`
+- `API_TIMEOUT_MS`: `Number(import.meta.env.VITE_API_TIMEOUT_MS) || 120000`
+- `getApiBaseUrl()` returns the configured API base URL.
 
 ---
 
@@ -39,9 +31,9 @@ VITE_API_TIMEOUT_MS=120000
 
 ```
 frontend/
-├── .env.development            # Local development environment
-├── .env.production             # Production environment defaults
-├── .env.example                # Template with placeholder for deployed URL
+├── .env.development            # Development environment configuration
+├── .env.production             # Production environment configuration
+├── .env.example                # Configuration template
 ├── index.html                  # Root HTML with Google Fonts preloads
 ├── package.json                # React 19, Lucide React, Tailwind
 ├── tsconfig.json
@@ -53,13 +45,13 @@ frontend/
     ├── App.tsx                 # State store + 2-page router ('ask' ⟷ 'results')
     ├── index.css               # Global reset, typography, Tailwind layers
     │
-    ├── config.ts               # Env variables & runtime backend switcher
+    ├── config.ts               # Environment configuration helper
     ├── types.ts                # Strict TypeScript contracts (QueryRequest, QueryResponse, Citation)
     │
     ├── api.ts                  # Fetch client (120s timeout, abort controller, error mapping)
     │
     └── components/
-        ├── Header.tsx          # Brand header, corpus stats pill, backend switcher
+        ├── Header.tsx          # Brand header, corpus stats pill, pipeline architecture tag
         ├── LatencyPill.tsx     # Compact telemetry strip (Retrieve, Rerank, Generate, Total ms)
         ├── AskView.tsx         # Page 1: Query textarea, char counter (3-4000), sample questions, submit
         ├── ResultsView.tsx     # Page 2: Query recap, dual-pane answer + citation cards, latency bar
@@ -113,20 +105,16 @@ frontend/
 ### Page 1: `AskView`
 - Large focused input card on the `#0B0E14` canvas.
 - Real-time character count indicator with 3–4,000 bounds.
-- 4 curated benchmark question cards:
-  1. *Section 482 CrPC quashing of FIR in matrimonial disputes after amicable settlement*
-  2. *Maintainability of writ petition under Article 226 when statutory alternative remedy exists*
-  3. *Conditions and guidelines for grant of anticipatory bail in non-bailable offences*
-  4. *Presumption of legal liability under Section 139 Negotiable Instruments Act in cheque dishonour cases*
-- Single primary CTA ("Analyze Jurisprudence") with keyboard submit support (`Enter` / `Ctrl+Enter`).
+- Curated benchmark question cards covering criminal procedure, constitutional writs, bail jurisprudence, commercial law, and arbitration.
+- Single primary CTA ("Synthesize Precedents") with keyboard submit support (`Ctrl+Enter` / `Cmd+Enter`).
 
 ### Loading State
-- Inline progress indicator showing elapsed seconds.
-- Multi-step status feedback ("Retrieving relevant High Court passages...", "Reranking candidates...", "Synthesizing grounded answer...").
-- Active "Cancel Query" button aborting the in-flight fetch.
+- Inline progress indicator showing elapsed seconds with precision (`0.0s`).
+- Multi-step status feedback ("Hybrid Retrieval Cascade", "Cross-Encoder Precision Rerank", "Grounded LLM Synthesis").
+- Active "Cancel" button aborting the in-flight fetch.
 
 ### Page 2: `ResultsView`
-- **Navigation:** "← New Search" button returns cleanly to `AskView`.
+- **Navigation:** "← New Inquiry" button returns cleanly to `AskView`.
 - **Query Banner:** Shows the verbatim question queried.
 - **Dual-Pane Layout:**
   - **Left / Main Pane:** `GroundedAnswer` parsing and converting `[Chunk ID: ...]` into amber clickable badge tags.

@@ -28,6 +28,4 @@ export interface QueryResponse {
   status: QueryStatus;
 }
 
-export type BackendTarget = 'local' | 'deployed';
-
 export type ActiveView = 'ask' | 'results';

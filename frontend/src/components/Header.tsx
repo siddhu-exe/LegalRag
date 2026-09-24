@@ -1,17 +1,10 @@
 import React from 'react';
-import { BackendTarget } from '../types';
 
 interface HeaderProps {
-  backend: BackendTarget;
-  onBackendChange: (target: BackendTarget) => void;
   onNewSearch?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
-  backend,
-  onBackendChange,
-  onNewSearch,
-}) => {
+export const Header: React.FC<HeaderProps> = ({ onNewSearch }) => {
   return (
     <header className="border-b border-white/[0.08] bg-canvas-surface/80 backdrop-blur-xl sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -42,44 +35,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </button>
 
-        {/* Right Action Bar: Pipeline Badge & Backend Switcher */}
-        <div className="flex items-center space-x-3 sm:space-x-4">
-          {/* Architecture Badge */}
-          <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded bg-canvas-surfaceLow border border-white/[0.08] text-[11px] font-mono text-slateSteel-light">
-            <span className="w-1.5 h-1.5 rounded-full bg-vectorMint animate-pulse"></span>
+        {/* Right Action Bar: Pipeline Architecture & Status Badges */}
+        <div className="flex items-center space-x-3">
+          <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-canvas-surfaceLow border border-white/[0.08] text-xs font-mono text-slateSteel-light">
+            <span className="w-2 h-2 rounded-full bg-vectorMint animate-pulse"></span>
             <span>Hybrid RRF + Reranker</span>
-          </div>
-
-          {/* Runtime Backend Switcher */}
-          <div className="flex items-center bg-canvas-surfaceLow p-1 rounded-md border border-white/[0.08] text-xs font-mono">
-            <button
-              type="button"
-              onClick={() => onBackendChange('local')}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded transition-all ${
-                backend === 'local'
-                  ? 'bg-canvas-surfaceHigh text-brass-light font-medium shadow-sm border border-brass/20'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-              title="Query local FastAPI instance on port 7860"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${backend === 'local' ? 'bg-brass animate-pulse' : 'bg-gray-600'}`}></span>
-              <span>Local</span>
-              <span className="text-[10px] text-gray-500 hidden sm:inline">:7860</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onBackendChange('deployed')}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded transition-all ${
-                backend === 'deployed'
-                  ? 'bg-canvas-surfaceHigh text-brass-light font-medium shadow-sm border border-brass/20'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-              title="Query deployed remote backend endpoint"
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${backend === 'deployed' ? 'bg-vectorMint animate-pulse' : 'bg-gray-600'}`}></span>
-              <span>Deployed</span>
-            </button>
           </div>
         </div>
       </div>
