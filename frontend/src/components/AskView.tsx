@@ -140,15 +140,15 @@ export const AskView: React.FC<AskViewProps> = ({
     <div className="relative overflow-hidden">
       {/* Ambient Evidentiary Glow (Non-blocking background) */}
       <div
-        className="absolute top-10 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-brass/5 rounded-full blur-[140px] pointer-events-none -z-10"
+        className="absolute top-10 left-1/2 -translate-x-1/2 w-[280px] sm:w-[700px] h-[350px] bg-brass/5 rounded-full blur-[140px] pointer-events-none z-0"
         aria-hidden="true"
       />
       <div
-        className="absolute top-80 right-1/4 w-[400px] h-[300px] bg-vectorMint/5 rounded-full blur-[120px] pointer-events-none -z-10"
+        className="absolute top-80 right-1/4 w-[240px] sm:w-[400px] h-[300px] bg-vectorMint/5 rounded-full blur-[120px] pointer-events-none z-0"
         aria-hidden="true"
       />
 
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-14 pb-16">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-14 pb-16">
         {/* Editorial Hero Header */}
         <div className="text-center max-w-3xl mx-auto mb-10">
           {/* Pre-flight System Badge */}

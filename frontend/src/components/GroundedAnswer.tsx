@@ -78,7 +78,7 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
             key={`${keyPrefix}-badge-${matchStart}-${idIdx}`}
             type="button"
             onClick={() => onCitationClick?.(chunkId)}
-            className={`inline-flex items-center px-1.5 py-0.2 mx-0.5 my-0 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none align-baseline focus:outline-none focus-visible:ring-1 focus-visible:ring-brass ${
+            className={`inline-flex items-center px-1.5 py-0.5 mx-0.5 my-0 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none align-baseline focus:outline-none focus-visible:ring-1 focus-visible:ring-brass ${
               isSelected
                 ? 'bg-brass text-canvas-base font-bold shadow-sm ring-1 ring-brass scale-[1.03]'
                 : 'bg-brass/10 hover:bg-brass/25 text-brass-light hover:text-white border border-brass/25 hover:border-brass/50'

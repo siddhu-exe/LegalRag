@@ -61,14 +61,14 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   const isErrorStatus = result.status !== 'ok';
 
   return (
-    <div className="relative min-h-[calc(100vh-4rem)]">
+    <div className="relative min-h-[calc(100vh-4rem)] overflow-hidden">
       {/* Subtle ambient lighting */}
       <div
-        className="absolute top-10 left-1/4 w-[500px] h-[250px] bg-brass/4 rounded-full blur-[140px] pointer-events-none -z-10"
+        className="absolute top-10 left-1/4 w-[280px] sm:w-[500px] h-[250px] bg-brass/[0.04] rounded-full blur-[140px] pointer-events-none z-0"
         aria-hidden="true"
       />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-16">
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-16">
         {/* Top Navigation & Action Strip */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-white/[0.08]">
           <button
