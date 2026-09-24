@@ -17,7 +17,7 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
 | Component | URL / Host | Notes |
 | :--- | :--- | :--- |
 | **Web Interface** | [legalrag-six.vercel.app](https://legalrag-six.vercel.app) | React 19 + Vite SPA hosted on Vercel |
-| **Backend API** | **AWS EC2 `t4.xlarge`** | FastAPI container, `ENVIRONMENT=production`, port `7860` |
+| **Backend API** | **AWS EC2 `t3.xlarge`** | FastAPI container, `ENVIRONMENT=production`, port `7860` |
 
 The EC2 instance is stopped when idle to avoid continuous hosting costs for the 538k-chunk index.
 While it is down, the frontend's readiness gatekeeper (`GET /ready`) shows a standby screen;
