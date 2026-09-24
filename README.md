@@ -12,6 +12,19 @@ Standard general-purpose RAG pipelines struggle in legal domains due to exact st
 
 ---
 
+## Live Deployment
+
+| Component | URL / Host | Notes |
+| :--- | :--- | :--- |
+| **Web Interface** | [legalrag-six.vercel.app](https://legalrag-six.vercel.app) | React 19 + Vite SPA hosted on Vercel |
+| **Backend API** | **AWS EC2 `t4.xlarge`** | FastAPI container, `ENVIRONMENT=production`, port `7860` |
+
+The EC2 instance is stopped when idle to avoid continuous hosting costs for the 538k-chunk index.
+While it is down, the frontend's readiness gatekeeper (`GET /ready`) shows a standby screen;
+start the instance to restore full query service.
+
+---
+
 ## Key Highlights
 
 - **Scale**: 100,000 High Court judgments across 24 Indian jurisdictions ingested, sanitized, and partitioned into **538,079 text chunks**.
@@ -152,7 +165,7 @@ LegalRAG/
 ├── pyproject.toml                      # Standard Python packaging and tool configuration
 ├── requirements.txt                    # Pinned runtime dependencies
 ├── requirements-dev.txt                # Development & test tooling
-├── Dockerfile                          # Production multi-stage Docker container (HF Spaces UID 1000)
+├── Dockerfile                          # Production multi-stage Docker container (UID 1000; AWS EC2 & HF Spaces)
 ├── .dockerignore                       # Container build exclusion rules
 ├── .gitignore                          # Data, virtualenv, and checkpoint exclusion rules
 ├── src/                                # Core modular Python package
@@ -252,7 +265,7 @@ export API_PORT=7860
 uvicorn legalrag.api.main:app --host 0.0.0.0 --port 7860
 ```
 
-#### Mode C: Docker Container (Azure Container Apps / Hugging Face Spaces)
+#### Mode C: Docker Container (AWS EC2 / Azure Container Apps / Hugging Face Spaces)
 Complies with standard container runtime specification (non-root UID 1000, exposed port 7860):
 ```bash
 docker build -t legalrag-api .
@@ -263,6 +276,9 @@ docker run -p 7860:7860 \
     -e HF_REPO_ID="siddhu23/LegalRag_Dataset" \
     legalrag-api
 ```
+
+The live production backend runs this container on an **AWS EC2 `t4.xlarge`** instance
+(see [Live Deployment](#live-deployment)).
 
 ### 3. Running Tests
 ```bash
@@ -344,6 +360,7 @@ For comprehensive deep dives into each subsystem, refer to the documentation sui
 - [x] **Production Exception Shielding & LLMOps**: Sanitized error states, rate limit handling, and hallucinated citation filtering
 - [x] **Groq Generation Integration** (official `groq` SDK; model selected by `GROQ_MODEL_NAME`, default `qwen/qwen3.8-27b`)
 - [x] **Docker Packaging for Hugging Face Spaces** (Port 7860, UID 1000 non-root user)
+- [x] **Live Deployment**: React/Vite interface on Vercel ([legalrag-six.vercel.app](https://legalrag-six.vercel.app)) backed by the FastAPI service on AWS EC2 `t4.xlarge`
 - [ ] **Streamlit / Web UI**: Query interface with interactive citation verification, court filtering, and chunk highlight graphs
 - [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments
 

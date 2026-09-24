@@ -194,6 +194,9 @@ frontend/
 
 ## 🚢 Deployment Options
 
+**Live deployment:** [legalrag-six.vercel.app](https://legalrag-six.vercel.app) (Vercel), served by the
+LegalRAG backend running on **AWS EC2 `t4.xlarge`**.
+
 The frontend is a static Single Page Application (SPA) and can be hosted on any modern static hosting platform:
 
 | Provider | Build Command | Output Directory | Environment Variable |
