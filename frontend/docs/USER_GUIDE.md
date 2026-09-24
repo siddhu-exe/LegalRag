@@ -6,20 +6,32 @@ A complete guide for users, developers, and maintainers interacting with or exte
 
 ## 1. Application Flow & Architecture
 
-The frontend is a dedicated 2-page Single Page Application (SPA) designed to showcase the multi-stage judicial retrieval and grounded generation capabilities of LegalRAG.
+The frontend is a dedicated Single Page Application (SPA) with automatic **AWS EC2 readiness verification** and a 2-page research flow:
 
 ```
-       ┌──────────────────────┐
-       │   App.tsx (Router)   │
-       └──────────┬───────────┘
-                  │
-        ┌─────────┴─────────┐
-        ▼                   ▼
-┌──────────────┐    ┌──────────────┐
-│  AskView     │    │ ResultsView  │
-│  (Page 1)    │    │ (Page 2)     │
-└──────────────┘    └──────────────┘
+                      ┌──────────────────────┐
+                      │   App.tsx (Mount)    │
+                      └──────────┬───────────┘
+                                 │
+                     [Probe GET /ready (AWS)]
+                                 │
+                 ┌───────────────┴───────────────┐
+                 │                               │
+       (If Ready: HTTP 200)             (If Offline / Paused)
+                 │                               │
+        ┌────────┴────────┐             ┌────────▼──────────────┐
+        ▼                 ▼             │ BackendOfflineView    │
+┌──────────────┐   ┌──────────────┐     │ (Cost-pause notice &  │
+│   AskView    │   │ ResultsView  │     │  LinkedIn activation) │
+│  (Page 1)    │   │  (Page 2)    │     └───────────────────────┘
+└──────────────┘   └──────────────┘
 ```
+
+### Initial State: AWS EC2 Readiness Gatekeeper (`BackendOfflineView.tsx`)
+- **Automatic Probe**: On application load, the frontend checks `GET /ready` on the backend cluster.
+- **Cost Transparency Notice**: If the backend is offline (AWS EC2 `t4.xlarge` instance paused to eliminate continuous hosting costs for the 538k corpus indexes), the app displays an informative standby screen.
+- **On-Demand Activation CTA**: A direct LinkedIn button allows reviewers or recruiters to reach out to the administrator (`https://www.linkedin.com/in/siddharth-dongardive`) to spin up the container instance for a live demo.
+- **Instant Re-Check**: A "Re-check Status" button allows immediate validation once the EC2 instance is powered on.
 
 ### Page 1: AskView (`src/components/AskView.tsx`)
 - **Hero Banner**: Highlights the 538,079 chunk corpus scale and dual-index hybrid architecture.
@@ -74,10 +86,11 @@ Rendered UI: "...pursuant to Section 482 [1 · CAL]..."
 
 | File | Purpose | Key Details |
 | :--- | :--- | :--- |
-| `src/App.tsx` | View state & query orchestrator | Holds `view`, `question`, `result`, `isLoading`, `error`, `abortController`. |
-| `src/api.ts` | Backend HTTP client | Handles `POST /query`, 120s timeout, abort signals, and HTTP error code mapping (`422`, `500`, `502`, `503`). |
+| `src/App.tsx` | View state & query orchestrator | Holds `backendStatus`, `view`, `question`, `result`, `isLoading`, `error`, `abortController`. |
+| `src/api.ts` | Backend HTTP client | Handles `checkBackendReady()` (`GET /ready`), `POST /query`, 120s timeout, abort signals, and HTTP error code mapping (`422`, `500`, `502`, `503`). |
 | `src/config.ts` | Configuration resolver | Reads `VITE_API_URL`, `VITE_API_BASE_URL`, and `VITE_API_TIMEOUT_MS`. |
-| `src/types.ts` | Invariant TypeScript types | Defines `QueryRequest`, `QueryResponse`, `Citation`, `QueryStatus`, `ActiveView`. |
+| `src/types.ts` | Invariant TypeScript types | Defines `QueryRequest`, `QueryResponse`, `Citation`, `QueryStatus`, `BackendStatus`, `ActiveView`. |
+| `src/components/BackendOfflineView.tsx` | AWS EC2 Standby Fallback | Explains cloud hosting pause, provides LinkedIn activation CTA and instant re-check button. |
 | `src/components/AskView.tsx` | Inquiry page | Character validation, 6 benchmark cards, live execution progress bar. |
 | `src/components/ResultsView.tsx` | Results page coordinator | Dual-pane layout, copy actions, status alerts, telemetry container. |
 | `src/components/GroundedAnswer.tsx` | Distraction-free prose renderer | Custom regex parser converting `[Chunk ID: ...]` to interactive badges. |

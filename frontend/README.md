@@ -8,28 +8,43 @@ The interface connects directly to the **LegalRAG** backend to perform hybrid re
 
 ## 🏛️ System Overview
 
-The frontend is structured around a streamlined, distraction-free **2-Page Architecture**:
+The frontend is structured around an automatic **AWS EC2 Readiness Gatekeeper** and a distraction-free **2-Page Architecture**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             PAGE 1: ASK VIEW                                │
-│                                                                             │
-│  • Editorial Hero & Dual-Index Status Pill (538k Chunks Active)             │
-│  • Judicial Inquiry Contextualizer (3 - 4,000 char validation)              │
-│  • Live Pipeline Execution Visualizer (Retrieval → Rerank → Synthesis)      │
-│  • 6 Curated Benchmark Test Vectors (Criminal, Writs, Bail, Commercial...)  │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ POST /query
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           PAGE 2: RESULTS VIEW                              │
-│                                                                             │
-│  • Inquiry Recap & Verified Precedent Counter                               │
-│  • Left Pane: Clean Judicial Precedent Synthesis with Inline Citation Badges│
-│  • Right Pane: Interactive Authority Cards (CNR, Court, Date, Chunk ID)     │
-│  • Base Strip: Segmented Pipeline Execution Telemetry (Retrieve/Rerank/Gen) │
-└─────────────────────────────────────────────────────────────────────────────┘
+                      ┌──────────────────────┐
+                      │   App.tsx (Mount)    │
+                      └──────────┬───────────┘
+                                 │
+                     [Probe GET /ready (AWS)]
+                                 │
+                 ┌───────────────┴───────────────┐
+                 │                               │
+       (If Ready: HTTP 200)             (If Offline / Paused)
+                 │                               │
+        ┌────────┴────────┐             ┌────────▼──────────────┐
+        ▼                 ▼             │ BackendOfflineView    │
+┌──────────────┐   ┌──────────────┐     │ (Cost-pause notice &  │
+│   AskView    │   │ ResultsView  │     │  LinkedIn activation) │
+│  (Page 1)    │   │  (Page 2)    │     └───────────────────────┘
+└──────────────┘   └──────────────┘
 ```
+
+1. **Readiness Gatekeeper (`BackendOfflineView.tsx`)**:
+   - Automatically probes `GET /ready` on the backend cluster.
+   - If the AWS EC2 (`t4.xlarge`) container instance is paused to reduce continuous cloud hosting costs for the 538k corpus index, the app presents an informative standby screen with technical infrastructure details.
+   - Provides a direct **LinkedIn Contact CTA** to notify the admin to spin up the container instance on demand, alongside an instant **Re-check Status** button.
+
+2. **Page 1: Ask View (`AskView.tsx`)**:
+   - Editorial Hero & Corpus Status Badge (538k Chunks Active).
+   - Judicial Inquiry Contextualizer with 3–4,000 character bounds & shortcut (`Cmd/Ctrl+Enter`).
+   - Live Multi-Stage Visualizer (Hybrid Retrieval → Neural Rerank → Grounded LLM) with elapsed timer and cancellation.
+   - 6 Curated Benchmark Test Vectors from the 497-question gold set.
+
+3. **Page 2: Results View (`ResultsView.tsx`)**:
+   - Inquiry Recap & Verified Precedent Counter.
+   - Left Pane: Clean Judicial Precedent Synthesis with distraction-free inline citation badges (`[1]`, `[1 · CAL]`).
+   - Right Pane: Interactive Authority Cards (CNR, Court, Date, Chunk ID with copy actions).
+   - Base Strip: Segmented Pipeline Execution Telemetry (`retrieve_ms`, `rerank_ms`, `generate_ms`, `total_ms`).
 
 ---
 
@@ -151,7 +166,8 @@ frontend/
 │   └── USER_GUIDE.md         # End-user & maintainer guide
 ├── src/
 │   ├── components/
-│   │   ├── Header.tsx        # Brand header, corpus badges, home navigation
+│   │   ├── Header.tsx        # Brand header, corpus badges, dynamic AWS status indicator
+│   │   ├── BackendOfflineView.tsx # AWS EC2 standby screen, cost notice & LinkedIn activation CTA
 │   │   ├── AskView.tsx       # Page 1: Query input, char counter, benchmark vectors, progress bar
 │   │   ├── ResultsView.tsx   # Page 2: Dual-pane synthesis, citations sidebar, telemetry strip
 │   │   ├── GroundedAnswer.tsx# Prose renderer with regex inline citation parsing

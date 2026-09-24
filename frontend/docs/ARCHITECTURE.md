@@ -25,21 +25,26 @@ The LegalRAG frontend is built as a flagship **AI Engineering Portfolio UI** des
                                          │
                                  ┌───────▼───────┐
                                  │    App.tsx    │
-                         (Manages view state & queries)
+                         (Manages view & readiness state)
                                          │
              ┌───────────────────────────┼───────────────────────────┐
              │                           │                           │
-     ┌───────▼───────┐           ┌───────▼───────┐           ┌───────▼───────┐
-     │  Header.tsx   │           │  AskView.tsx  │           │ResultsView.tsx│
-     │(Corpus badges)│           │   (Page 1)    │           │   (Page 2)    │
-     └───────────────┘           └───────────────┘           └───────┬───────┘
-                                                                     │
-                                         ┌───────────────────────────┼───────────────────────────┐
-                                         │                           │                           │
-                                 ┌───────▼───────────┐       ┌───────▼───────────┐       ┌───────▼───────────┐
-                                 │GroundedAnswer.tsx │       │ CitationCard.tsx  │       │  LatencyPill.tsx  │
-                                 │(Parsed badge tags)│       │(Authority cards)  │       │(Telemetry segment)│
-                                 └───────────────────┘       └───────────────────┘       └───────────────────┘
+     ┌───────▼───────┐           ┌───────▼───────┐           ┌───────▼───────────────┐
+     │  Header.tsx   │           │  AskView.tsx  │           │BackendOfflineView.tsx │
+     │(Corpus badges)│           │   (Page 1)    │           │ (AWS Standby / Status)│
+     └───────────────┘           └───────┬───────┘           └───────────────────────┘
+                                         │
+                                 ┌───────▼───────┐
+                                 │ResultsView.tsx│
+                                 │   (Page 2)    │
+                                 └───────┬───────┘
+                                         │
+                         ┌───────────────┴───────────────┐
+                         │                               │
+                 ┌───────▼───────────┐           ┌───────▼───────────┐
+                 │GroundedAnswer.tsx │           │ CitationCard.tsx  │
+                 │(Parsed badge tags)│           │(Authority cards)  │
+                 └───────────────────┘           └───────────────────┘
 ```
 
 ---
@@ -50,7 +55,8 @@ The application avoids heavy state-management libraries (Redux/Zustand) in favor
 
 | State Variable | Type | Purpose |
 | :--- | :--- | :--- |
-| `view` | `'ask' \| 'results'` | Controls active page screen. |
+| `backendStatus` | `'checking' \| 'ready' \| 'offline'` | Tracks AWS EC2 container readiness via `GET /ready`. |
+| `view` | `'ask' \| 'results'` | Controls active page screen when backend is ready. |
 | `question` | `string` | The active legal inquiry text. |
 | `result` | `QueryResponse \| null` | The validated response object returned by `POST /query`. |
 | `isLoading` | `boolean` | Indicates active backend query execution. |

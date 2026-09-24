@@ -252,11 +252,17 @@ app.add_middleware(
 
 Once deployed, perform the following end-to-end sanity tests:
 
-1. **Initial Page Load**:
-   - Visit the deployment URL.
-   - Verify header badges show: `100k Judgments · 538k Chunks` and `Hybrid RRF + Reranker`.
-   - Verify character counter reads `0 / 4,000 characters`.
-2. **Populate Benchmark Query**:
+1. **Initial AWS Readiness Verification (`GET /ready`)**:
+   - **When Backend is Active (EC2 Online)**:
+     - Visit the deployment URL.
+     - Observe the quick "Connecting to LegalRAG Cluster" readiness probe.
+     - View automatically transitions to `AskView` (Page 1).
+     - Header status pill shows `Hybrid RRF + Reranker` with a live pulse.
+   - **When Backend is Paused (EC2 Standby)**:
+     - Standby screen (`BackendOfflineView`) renders explaining that the AWS EC2 container is in standby to save costs.
+     - Verify the LinkedIn CTA button points to `https://www.linkedin.com/in/siddharth-dongardive`.
+     - Click **Re-check Status** to trigger manual probe.
+2. **Populate Benchmark Query (When Active)**:
    - Click one of the 6 benchmark query cards (e.g., *Section 482 CrPC quashing in matrimonial disputes*).
    - Ensure the textarea is populated with the question.
 3. **Execute Inquiry**:
