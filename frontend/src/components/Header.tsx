@@ -1,10 +1,12 @@
 import React from 'react';
+import { BackendStatus } from '../types';
 
 interface HeaderProps {
   onNewSearch?: () => void;
+  backendStatus?: BackendStatus;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onNewSearch }) => {
+export const Header: React.FC<HeaderProps> = ({ onNewSearch, backendStatus = 'ready' }) => {
   return (
     <header className="border-b border-white/[0.08] bg-canvas-surface/80 backdrop-blur-xl sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -37,10 +39,26 @@ export const Header: React.FC<HeaderProps> = ({ onNewSearch }) => {
 
         {/* Right Action Bar: Pipeline Architecture & Status Badges */}
         <div className="flex items-center space-x-3">
-          <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-canvas-surfaceLow border border-white/[0.08] text-xs font-mono text-slateSteel-light">
-            <span className="w-2 h-2 rounded-full bg-vectorMint animate-pulse"></span>
-            <span>Hybrid RRF + Reranker</span>
-          </div>
+          {backendStatus === 'ready' && (
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-canvas-surfaceLow border border-white/[0.08] text-xs font-mono text-slateSteel-light">
+              <span className="w-2 h-2 rounded-full bg-vectorMint animate-pulse"></span>
+              <span>Hybrid RRF + Reranker</span>
+            </div>
+          )}
+
+          {backendStatus === 'offline' && (
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-amber-950/40 border border-amber-500/30 text-xs font-mono text-amber-300">
+              <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+              <span>AWS EC2 Standby</span>
+            </div>
+          )}
+
+          {backendStatus === 'checking' && (
+            <div className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-canvas-surfaceLow border border-white/[0.08] text-xs font-mono text-gray-400">
+              <span className="w-2 h-2 rounded-full bg-gray-500 animate-pulse"></span>
+              <span>Checking Cluster...</span>
+            </div>
+          )}
         </div>
       </div>
     </header>

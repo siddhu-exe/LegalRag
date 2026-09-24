@@ -1,17 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { AskView } from './components/AskView';
 import { ResultsView } from './components/ResultsView';
-import { ActiveView, QueryResponse } from './types';
-import { queryLegalRag } from './api';
+import { BackendOfflineView } from './components/BackendOfflineView';
+import { ActiveView, QueryResponse, BackendStatus } from './types';
+import { queryLegalRag, checkBackendReady } from './api';
+import { Loader2, Server } from 'lucide-react';
 
 export const App: React.FC = () => {
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
+  const [isRetryingReadiness, setIsRetryingReadiness] = useState<boolean>(false);
   const [view, setView] = useState<ActiveView>('ask');
   const [question, setQuestion] = useState<string>('');
   const [result, setResult] = useState<QueryResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+
+  const verifyReadiness = useCallback(async () => {
+    try {
+      const isReady = await checkBackendReady();
+      setBackendStatus(isReady ? 'ready' : 'offline');
+      return isReady;
+    } catch {
+      setBackendStatus('offline');
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    verifyReadiness();
+  }, [verifyReadiness]);
+
+  const handleManualRetry = async () => {
+    setIsRetryingReadiness(true);
+    const isReady = await verifyReadiness();
+    setIsRetryingReadiness(false);
+    if (!isReady) {
+      throw new Error('Backend is still offline');
+    }
+  };
 
   const handleSearch = async (queryText: string) => {
     setIsLoading(true);
@@ -56,10 +84,34 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200 antialiased">
-      <Header onNewSearch={handleNewSearch} />
+      <Header onNewSearch={handleNewSearch} backendStatus={backendStatus} />
 
       <main className="flex-1">
-        {view === 'ask' ? (
+        {backendStatus === 'checking' ? (
+          <div className="min-h-[calc(100vh-8rem)] flex flex-col items-center justify-center p-6 text-center space-y-4">
+            <div className="relative">
+              <div className="w-14 h-14 rounded-xl bg-canvas-surfaceHigh border border-white/[0.08] flex items-center justify-center text-brass shadow-lg">
+                <Server className="w-7 h-7 text-brass opacity-80" />
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Loader2 className="w-16 h-16 text-brass/30 animate-spin" />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="font-serif italic text-lg text-white">
+                Connecting to LegalRAG Cluster
+              </p>
+              <p className="font-mono text-xs text-slateSteel">
+                Verifying AWS EC2 container readiness (/ready probe)...
+              </p>
+            </div>
+          </div>
+        ) : backendStatus === 'offline' ? (
+          <BackendOfflineView
+            onRetry={handleManualRetry}
+            isRetrying={isRetryingReadiness}
+          />
+        ) : view === 'ask' ? (
           <AskView
             onSearch={handleSearch}
             isLoading={isLoading}

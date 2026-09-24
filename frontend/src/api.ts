@@ -13,6 +13,38 @@ export class ApiError extends Error {
 }
 
 /**
+ * Checks if the LegalRAG backend inference pipeline is ready.
+ * Calls GET /ready. Returns true if HTTP 200 with status="ready", false otherwise.
+ */
+export async function checkBackendReady(timeoutMs: number = 8000): Promise<boolean> {
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl.replace(/\/+$/, '')}/ready`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const data = await res.json();
+      return data.status === 'ready';
+    }
+    return false;
+  } catch {
+    clearTimeout(timeoutId);
+    return false;
+  }
+}
+
+/**
  * Executes a query against the LegalRAG backend.
  * AbortSignal supports user-triggered cancellation.
  */

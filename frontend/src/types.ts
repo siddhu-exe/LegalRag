@@ -17,6 +17,8 @@ export interface Citation {
 
 export type QueryStatus = 'ok' | 'generation_error' | 'retrieval_error';
 
+export type BackendStatus = 'checking' | 'ready' | 'offline';
+
 export interface QueryResponse {
   answer: string;
   citations: Citation[];
