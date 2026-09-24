@@ -1,6 +1,5 @@
 import React from 'react';
 import { Citation } from '../types';
-import { ShieldCheck } from 'lucide-react';
 
 interface GroundedAnswerProps {
   answer: string;
@@ -10,7 +9,8 @@ interface GroundedAnswerProps {
 }
 
 /**
- * Parses and renders the grounded synthesis with interactive evidentiary citation badges.
+ * Renders the grounded legal synthesis prose with non-distracting,
+ * elegant inline citation badges and clean editorial typography.
  */
 export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
   answer,
@@ -18,7 +18,7 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
   selectedChunkId,
   onCitationClick,
 }) => {
-  // Build a lookup map of chunk_id -> citation index (1-based) and citation object
+  // Build a lookup map: chunk_id -> { index: number, citation: Citation }
   const citationMap = React.useMemo(() => {
     const map = new Map<string, { index: number; citation: Citation }>();
     citations.forEach((c, idx) => {
@@ -29,9 +29,9 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
     return map;
   }, [citations]);
 
-  // Helper to format inline text with bolding and citation badges
+  // Helper to format inline text with bolding and sleek citation badges
   const renderInlineFormattedText = (text: string, keyPrefix: string): React.ReactNode[] => {
-    // Regex matches [Chunk ID: ...] or [Chunk: ...] or [Chunk ID ...]
+    // Matches [Chunk ID: ...], [Chunk: ...], [Chunk ID ...], or [Chunk ...]
     const citationRegex = /\[(?:Chunk(?:\s*ID)?[:\s]+)([^\]]+)\]/gi;
     const elements: React.ReactNode[] = [];
     let lastIndex = 0;
@@ -46,7 +46,9 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
       if (matchStart > lastIndex) {
         const precedingText = text.substring(lastIndex, matchStart);
         elements.push(
-          <span key={`${keyPrefix}-txt-${lastIndex}`}>{renderBoldAndItalic(precedingText, `${keyPrefix}-b-${lastIndex}`)}</span>
+          <span key={`${keyPrefix}-txt-${lastIndex}`}>
+            {renderBoldAndItalic(precedingText, `${keyPrefix}-b-${lastIndex}`)}
+          </span>
         );
       }
 
@@ -60,13 +62,15 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
         const citationNum = matched ? matched.index : null;
         const courtCode = matched?.citation.court_code;
 
-        // Label display: e.g. "§1 CAL" or "§1" or shortened chunk
+        // Clean, non-distracting label: e.g. "[1]" or "[1 · CAL]"
         const badgeLabel = citationNum
-          ? `§${citationNum}${courtCode ? ` ${courtCode.toUpperCase()}` : ''}`
-          : `§ ${chunkId.slice(0, 14)}…`;
+          ? courtCode
+            ? `[${citationNum} · ${courtCode.toUpperCase()}]`
+            : `[${citationNum}]`
+          : `[Ref]`;
 
         const tooltipTitle = matched?.citation.title
-          ? `Citation §${citationNum}: ${matched.citation.title} (${matched.citation.court_code || 'High Court'})`
+          ? `[${citationNum}] ${matched.citation.title} (${matched.citation.court_code ? `${matched.citation.court_code.toUpperCase()} High Court` : 'High Court'})\nClick to inspect authority`
           : `Chunk ID: ${chunkId}`;
 
         elements.push(
@@ -74,15 +78,14 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
             key={`${keyPrefix}-badge-${matchStart}-${idIdx}`}
             type="button"
             onClick={() => onCitationClick?.(chunkId)}
-            className={`inline-flex items-center space-x-1 px-2 py-0.5 mx-1 my-0.5 rounded text-[11px] font-mono font-medium border transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brass ${
+            className={`inline-flex items-center px-1.5 py-0.2 mx-0.5 my-0 rounded text-[11px] font-mono font-medium transition-all duration-150 cursor-pointer select-none align-baseline focus:outline-none focus-visible:ring-1 focus-visible:ring-brass ${
               isSelected
-                ? 'bg-brass text-canvas-base border-brass font-bold shadow-[0_0_15px_-2px_rgba(212,175,55,0.4)] scale-105'
-                : 'bg-brass/10 text-brass-light hover:bg-brass/25 hover:text-white border-brass/30 hover:border-brass/60'
+                ? 'bg-brass text-canvas-base font-bold shadow-sm ring-1 ring-brass scale-[1.03]'
+                : 'bg-brass/10 hover:bg-brass/25 text-brass-light hover:text-white border border-brass/25 hover:border-brass/50'
             }`}
             title={tooltipTitle}
             aria-label={`Jump to citation reference ${badgeLabel}`}
           >
-            <ShieldCheck className={`w-3 h-3 ${isSelected ? 'text-canvas-base' : 'text-brass'}`} />
             <span>{badgeLabel}</span>
           </button>
         );
@@ -95,7 +98,9 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
     if (lastIndex < text.length) {
       const remainingText = text.substring(lastIndex);
       elements.push(
-        <span key={`${keyPrefix}-txt-${lastIndex}`}>{renderBoldAndItalic(remainingText, `${keyPrefix}-b-${lastIndex}`)}</span>
+        <span key={`${keyPrefix}-txt-${lastIndex}`}>
+          {renderBoldAndItalic(remainingText, `${keyPrefix}-b-${lastIndex}`)}
+        </span>
       );
     }
 
@@ -119,39 +124,39 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
     });
   };
 
-  // Split synthesis answer by line breaks into structured paragraphs and bullet items
+  // Split synthesis answer by line breaks into structured paragraphs and elements
   const lines = answer.split('\n');
 
   return (
-    <div className="space-y-4 text-gray-200 font-sans text-sm sm:text-[15px] leading-relaxed">
+    <div className="space-y-4 text-gray-200 font-sans text-[15px] sm:text-[15.5px] leading-[1.8] antialiased">
       {lines.map((line, idx) => {
         const trimmed = line.trim();
 
         // Skip empty lines or render subtle spacing
         if (!trimmed) {
-          return <div key={`spacer-${idx}`} className="h-1" />;
+          return <div key={`spacer-${idx}`} className="h-1.5" />;
         }
 
-        // Heading 3 / Section Marker (e.g., ### Key Findings or ## Section 482)
-        if (trimmed.startsWith('### ') || trimmed.startsWith('## ')) {
+        // Section Headings (### Key Findings or ## Section 482)
+        if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
           const headerText = trimmed.replace(/^#+\s*/, '');
           return (
             <h4
               key={`h-${idx}`}
-              className="font-serif text-base sm:text-lg font-medium text-white tracking-tight pt-2 border-b border-white/[0.06] pb-1.5 flex items-center space-x-2"
+              className="font-serif text-base sm:text-lg font-medium text-white tracking-tight pt-3 pb-1 border-b border-white/[0.06] flex items-center space-x-2"
             >
-              <span className="text-brass">§</span>
+              <span className="text-brass font-normal">§</span>
               <span>{headerText}</span>
             </h4>
           );
         }
 
-        // Bullet lists
+        // Bullet list items (- , * , •)
         if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || trimmed.startsWith('• ')) {
           const bulletText = trimmed.replace(/^[-*•]\s*/, '');
           return (
-            <div key={`bullet-${idx}`} className="flex items-start space-x-2.5 pl-2 sm:pl-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-brass/80 mt-2 shrink-0"></span>
+            <div key={`bullet-${idx}`} className="flex items-start space-x-3 pl-1 sm:pl-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-brass/70 mt-2.5 shrink-0" />
               <div className="flex-1 text-gray-300">
                 {renderInlineFormattedText(bulletText, `line-${idx}`)}
               </div>
@@ -159,14 +164,14 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
           );
         }
 
-        // Numbered list items (e.g. 1. , 2. )
+        // Numbered list items (1. , 2. )
         const numberedMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
         if (numberedMatch) {
           const num = numberedMatch[1];
           const itemText = numberedMatch[2];
           return (
-            <div key={`num-${idx}`} className="flex items-start space-x-2.5 pl-2 sm:pl-3">
-              <span className="font-mono text-xs font-semibold text-brass mt-1 shrink-0">
+            <div key={`num-${idx}`} className="flex items-start space-x-3 pl-1 sm:pl-2">
+              <span className="font-mono text-xs font-semibold text-brass/90 mt-1 shrink-0 w-4">
                 {num}.
               </span>
               <div className="flex-1 text-gray-300">
@@ -176,13 +181,13 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
           );
         }
 
-        // Blockquotes (e.g., > ...)
+        // Blockquotes (> ...)
         if (trimmed.startsWith('> ')) {
           const quoteText = trimmed.replace(/^>\s*/, '');
           return (
             <blockquote
               key={`quote-${idx}`}
-              className="border-l-2 border-brass/60 bg-canvas-surface/60 px-4 py-2.5 rounded-r text-gray-300 font-serif italic text-sm sm:text-base my-2"
+              className="border-l-2 border-brass/50 bg-canvas-surface/70 px-4 py-3 rounded-r text-gray-300 font-serif italic text-sm sm:text-base my-2"
             >
               {renderInlineFormattedText(quoteText, `line-${idx}`)}
             </blockquote>
@@ -191,7 +196,7 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
 
         // Standard Paragraph
         return (
-          <p key={`p-${idx}`} className="text-gray-300 leading-relaxed">
+          <p key={`p-${idx}`} className="text-gray-300">
             {renderInlineFormattedText(trimmed, `line-${idx}`)}
           </p>
         );

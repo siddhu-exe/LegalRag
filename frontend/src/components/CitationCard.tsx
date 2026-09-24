@@ -28,7 +28,7 @@ export const CitationCard: React.FC<CitationCardProps> = ({
 
   const courtDisplay = citation.court_code
     ? `${citation.court_code.toUpperCase()} High Court`
-    : 'Indian High Court Jurisdiction';
+    : 'High Court Jurisdiction';
 
   const titleDisplay = citation.title || 'Judicial Precedent Record';
 
@@ -44,83 +44,82 @@ export const CitationCard: React.FC<CitationCardProps> = ({
           onSelect?.(citation.chunk_id);
         }
       }}
-      className={`group relative p-4 sm:p-5 rounded-lg border text-left transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brass ${
+      className={`group relative p-4 rounded-lg border text-left transition-all duration-200 cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-brass ${
         isSelected
-          ? 'bg-canvas-surfaceHigh border-brass shadow-[0_0_25px_-5px_rgba(212,175,55,0.25)] ring-1 ring-brass/40'
-          : 'bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh/90 border-white/[0.08] hover:border-brass/40'
+          ? 'bg-canvas-surfaceHigh/90 border-brass shadow-[0_0_20px_-4px_rgba(212,175,55,0.18)]'
+          : 'bg-canvas-surfaceLow/80 hover:bg-canvas-surfaceHigh/60 border-white/[0.07] hover:border-brass/30'
       }`}
     >
-      {/* Active Indicator Bar on left */}
+      {/* Active Accent Pill Indicator on Left */}
       {isSelected && (
-        <div className="absolute left-0 top-3 bottom-3 w-1 bg-brass rounded-r" />
+        <div className="absolute left-0 top-2.5 bottom-2.5 w-1 bg-brass rounded-r" />
       )}
 
-      {/* Header: Index Seal + Court + Date */}
-      <div className="flex items-start justify-between gap-3 mb-2.5">
-        <div className="flex items-center space-x-2">
-          <div
-            className={`w-6 h-6 rounded-sm flex items-center justify-center font-mono text-xs font-bold transition-colors ${
+      {/* Top Metadata Header: Citation Number + Court + Decision Date */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center space-x-2 min-w-0">
+          <span
+            className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded font-mono text-[11px] font-bold tracking-tight transition-colors ${
               isSelected
-                ? 'bg-brass text-canvas-base shadow-sm'
-                : 'bg-brass/10 border border-brass/30 text-brass group-hover:bg-brass/20'
+                ? 'bg-brass text-canvas-base'
+                : 'bg-brass/10 text-brass border border-brass/25 group-hover:bg-brass/20'
             }`}
           >
-            §{index + 1}
-          </div>
-          <div className="flex items-center space-x-1.5 text-xs font-mono text-slateSteel-light font-medium">
+            [{index + 1}]
+          </span>
+
+          <div className="flex items-center space-x-1.5 text-xs font-mono text-slateSteel-light truncate">
             <Building2 className="w-3.5 h-3.5 text-slateSteel shrink-0" />
-            <span className="truncate max-w-[180px] sm:max-w-[220px]" title={courtDisplay}>
+            <span className="truncate" title={courtDisplay}>
               {courtDisplay}
             </span>
           </div>
         </div>
 
         {citation.decision_date && (
-          <div className="flex items-center space-x-1 text-[11px] font-mono text-gray-400 bg-canvas-base/60 px-2 py-0.5 rounded border border-white/[0.04]">
-            <Calendar className="w-3 h-3 text-gray-500" />
+          <div className="flex items-center space-x-1 text-[11px] font-mono text-gray-400 bg-canvas-base/50 px-1.5 py-0.5 rounded border border-white/[0.04] shrink-0">
+            <Calendar className="w-3 h-3 text-gray-500 shrink-0" />
             <span>{citation.decision_date}</span>
           </div>
         )}
       </div>
 
-      {/* Judgment Title in Editorial Serif */}
-      <h4 className="font-serif italic text-sm sm:text-base font-normal text-white group-hover:text-brass-light leading-snug mb-3 line-clamp-2 transition-colors">
+      {/* Case Law Title in Editorial Serif */}
+      <h4 className="font-serif italic text-sm font-normal text-white group-hover:text-brass-light leading-snug mb-2.5 line-clamp-2 transition-colors">
         {titleDisplay}
       </h4>
 
-      {/* Metadata & Identifier Pills */}
-      <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-white/[0.06] text-[11px] font-mono">
-        {/* CNR Code with Copy Action */}
+      {/* Bottom Identifier Strip: CNR & Chunk ID */}
+      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-white/[0.05] text-[10px] font-mono">
         {citation.cnr && (
           <button
             type="button"
             onClick={(e) => handleCopy(e, citation.cnr!, 'cnr')}
-            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-canvas-base border border-white/[0.08] hover:border-slateSteel text-gray-300 hover:text-white transition-colors"
+            className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-canvas-base/60 border border-white/[0.06] hover:border-slateSteel text-gray-400 hover:text-white transition-colors"
             title="Click to copy Case Number Record (CNR)"
           >
             <span className="text-slateSteel">CNR:</span>
-            <span className="text-gray-200">{citation.cnr}</span>
+            <span className="text-gray-300">{citation.cnr}</span>
             {copiedField === 'cnr' ? (
-              <Check className="w-3 h-3 text-vectorMint ml-0.5" />
+              <Check className="w-3 h-3 text-vectorMint ml-0.5 shrink-0" />
             ) : (
-              <Copy className="w-3 h-3 text-gray-500 hover:text-gray-300 ml-0.5" />
+              <Copy className="w-2.5 h-2.5 text-gray-500 hover:text-gray-300 ml-0.5 shrink-0" />
             )}
           </button>
         )}
 
-        {/* Chunk Identifier Badge with Copy Action */}
         <button
           type="button"
           onClick={(e) => handleCopy(e, citation.chunk_id, 'chunk')}
-          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-canvas-base border border-white/[0.08] hover:border-brass/40 text-gray-400 hover:text-brass-light transition-colors max-w-[220px]"
+          className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-canvas-base/60 border border-white/[0.06] hover:border-brass/30 text-gray-400 hover:text-brass-light transition-colors max-w-[200px]"
           title={`Click to copy Chunk ID: ${citation.chunk_id}`}
         >
-          <Hash className="w-3 h-3 text-brass/70 shrink-0" />
+          <Hash className="w-2.5 h-2.5 text-brass/60 shrink-0" />
           <span className="truncate">{citation.chunk_id}</span>
           {copiedField === 'chunk' ? (
-            <Check className="w-3 h-3 text-vectorMint shrink-0 ml-0.5" />
+            <Check className="w-3 h-3 text-vectorMint ml-0.5 shrink-0" />
           ) : (
-            <Copy className="w-3 h-3 text-gray-500 hover:text-gray-300 shrink-0 ml-0.5" />
+            <Copy className="w-2.5 h-2.5 text-gray-500 hover:text-gray-300 ml-0.5 shrink-0" />
           )}
         </button>
       </div>
