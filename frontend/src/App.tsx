@@ -1,0 +1,88 @@
+import React, { useState } from 'react';
+import { Header } from './components/Header';
+import { AskView } from './components/AskView';
+import { ResultsView } from './components/ResultsView';
+import { BackendTarget, ActiveView, QueryResponse } from './types';
+import { getActiveBackend, setActiveBackend } from './config';
+import { queryLegalRag } from './api';
+
+export const App: React.FC = () => {
+  const [backend, setBackend] = useState<BackendTarget>(getActiveBackend());
+  const [view, setView] = useState<ActiveView>('ask');
+  const [question, setQuestion] = useState<string>('');
+  const [result, setResult] = useState<QueryResponse | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+
+  const handleBackendChange = (target: BackendTarget) => {
+    setActiveBackend(target);
+    setBackend(target);
+  };
+
+  const handleSearch = async (queryText: string) => {
+    setIsLoading(true);
+    setError(null);
+    setQuestion(queryText);
+
+    const controller = new AbortController();
+    setAbortController(controller);
+
+    try {
+      const data = await queryLegalRag({ question: queryText }, controller.signal);
+      setResult(data);
+      setView('results');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('An unexpected error occurred while querying.');
+      }
+    } finally {
+      setIsLoading(false);
+      setAbortController(null);
+    }
+  };
+
+  const handleCancel = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setIsLoading(false);
+    }
+  };
+
+  const handleNewSearch = () => {
+    setView('ask');
+    setError(null);
+  };
+
+  return (
+    <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200">
+      <Header
+        backend={backend}
+        onBackendChange={handleBackendChange}
+        onNewSearch={handleNewSearch}
+      />
+
+      <main className="flex-1">
+        {view === 'ask' ? (
+          <AskView
+            onSearch={handleSearch}
+            isLoading={isLoading}
+            onCancel={handleCancel}
+            error={error}
+          />
+        ) : result ? (
+          <ResultsView
+            question={question}
+            result={result}
+            onNewSearch={handleNewSearch}
+          />
+        ) : null}
+      </main>
+    </div>
+  );
+};
+
+export default App;
