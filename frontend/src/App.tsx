@@ -34,9 +34,13 @@ export const App: React.FC = () => {
       setView('results');
     } catch (err: unknown) {
       if (err instanceof Error) {
-        setError(err.message);
+        if (err.name === 'AbortError') {
+          setError('Inquiry cancelled by user.');
+        } else {
+          setError(err.message);
+        }
       } else {
-        setError('An unexpected error occurred while querying.');
+        setError('An unexpected error occurred while processing the judicial query.');
       }
     } finally {
       setIsLoading(false);
@@ -58,7 +62,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200">
+    <div className="min-h-screen bg-canvas-base flex flex-col font-sans text-gray-200 antialiased">
       <Header
         backend={backend}
         onBackendChange={handleBackendChange}
@@ -81,6 +85,16 @@ export const App: React.FC = () => {
           />
         ) : null}
       </main>
+
+      {/* Editorial Footer */}
+      <footer className="border-t border-white/[0.06] bg-canvas-surface/40 py-6 text-center text-xs font-mono text-gray-500">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>LegalRAG · Autonomous Judicial Retrieval Engine</span>
+          <span className="text-gray-600">
+            100,000 High Court Judgments · 538,079 Chunks · BGE + BM25 + Cross-Encoder
+          </span>
+        </div>
+      </footer>
     </div>
   );
 };
