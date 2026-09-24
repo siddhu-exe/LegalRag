@@ -89,9 +89,11 @@ export const AskView: React.FC<AskViewProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const charCount = question.length;
-  const isTooShort = charCount > 0 && charCount < 3;
-  const isTooLong = charCount > 4000;
-  const isValid = charCount >= 3 && charCount <= 4000;
+  // Validate against the trimmed value, which is what actually gets submitted.
+  const trimmedCount = question.trim().length;
+  const isTooShort = charCount > 0 && trimmedCount < 3;
+  const isTooLong = trimmedCount > 4000;
+  const isValid = trimmedCount >= 3 && trimmedCount <= 4000;
 
   // Live timer during query execution
   useEffect(() => {
@@ -148,7 +150,7 @@ export const AskView: React.FC<AskViewProps> = ({
         aria-hidden="true"
       />
 
-      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-14 pb-16">
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-14 pb-16">
         {/* Editorial Hero Header */}
         <div className="text-center max-w-3xl mx-auto mb-10">
           {/* Pre-flight System Badge */}

@@ -31,8 +31,8 @@ export const LatencyPill: React.FC<LatencyPillProps> = ({
         </div>
         <div className="flex items-center space-x-1.5 text-xs">
           <span className="text-gray-400">Total:</span>
-          <span className="text-brass font-bold">{totalMs.toFixed(0)}ms</span>
-          <span className="text-slateSteel text-[11px]">({(totalMs / 1000).toFixed(2)}s)</span>
+          <span className="text-brass font-bold">{safeTotal.toFixed(0)}ms</span>
+          <span className="text-slateSteel text-[11px]">({(safeTotal / 1000).toFixed(2)}s)</span>
         </div>
       </div>
 

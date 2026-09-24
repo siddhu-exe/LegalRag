@@ -141,13 +141,13 @@ export const GroundedAnswer: React.FC<GroundedAnswerProps> = ({
         if (trimmed.startsWith('### ') || trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
           const headerText = trimmed.replace(/^#+\s*/, '');
           return (
-            <h4
+            <h3
               key={`h-${idx}`}
               className="font-serif text-base sm:text-lg font-medium text-white tracking-tight pt-3 pb-1 border-b border-white/[0.06] flex items-center space-x-2"
             >
               <span className="text-brass font-normal">§</span>
               <span>{headerText}</span>
-            </h4>
+            </h3>
           );
         }
 

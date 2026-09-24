@@ -58,9 +58,12 @@ export async function queryLegalRag(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
-  // Link external abort signal if provided
-  if (signal) {
-    signal.addEventListener('abort', () => controller.abort());
+  // Link external abort signal if provided. An already-aborted signal never
+  // fires the listener, so check it up front.
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener('abort', () => controller.abort(), { once: true });
   }
 
   try {
@@ -94,7 +97,14 @@ export async function queryLegalRag(
     clearTimeout(timeoutId);
     if (err instanceof ApiError) throw err;
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new ApiError('Request timed out or was cancelled.', 408, 'ABORT_ERR');
+      // Distinguish a user cancel from the internal API timeout so the UI can
+      // report the right thing.
+      const cancelled = signal?.aborted === true;
+      throw new ApiError(
+        cancelled ? 'Inquiry cancelled by user.' : 'Request timed out. Please retry.',
+        408,
+        cancelled ? 'ABORT_ERR' : 'TIMEOUT_ERR'
+      );
     }
     throw new ApiError(
       err instanceof Error ? err.message : 'Unable to connect to backend server.'

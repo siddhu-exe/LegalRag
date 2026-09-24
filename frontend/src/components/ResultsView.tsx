@@ -3,6 +3,7 @@ import { QueryResponse } from '../types';
 import { GroundedAnswer } from './GroundedAnswer';
 import { CitationCard } from './CitationCard';
 import { LatencyPill } from './LatencyPill';
+import { copyText } from '../clipboard';
 import {
   ArrowLeft,
   Copy,
@@ -27,8 +28,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   onNewSearch,
 }) => {
   const [selectedChunkId, setSelectedChunkId] = useState<string | null>(null);
-  const [copiedSynthesis, setCopiedSynthesis] = useState(false);
-  const [copiedQuery, setCopiedQuery] = useState(false);
+  const [synthesisCopy, setSynthesisCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [queryCopy, setQueryCopy] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   // Synchronize selecting citation and scrolling into view
   const handleCitationSelect = (chunkId: string) => {
@@ -39,7 +40,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     }
   };
 
-  const handleCopySynthesis = () => {
+  const handleCopySynthesis = async () => {
     const textToCopy = `QUESTION:\n${question}\n\nGROUNDED SYNTHESIS:\n${result.answer}\n\nCITATIONS:\n${result.citations
       .map(
         (c, i) =>
@@ -47,21 +48,29 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       )
       .join('\n')}`;
 
-    navigator.clipboard.writeText(textToCopy);
-    setCopiedSynthesis(true);
-    setTimeout(() => setCopiedSynthesis(false), 2000);
+    const succeeded = await copyText(textToCopy);
+    setSynthesisCopy(succeeded ? 'copied' : 'failed');
+    setTimeout(() => setSynthesisCopy('idle'), 2500);
   };
 
-  const handleCopyQuery = () => {
-    navigator.clipboard.writeText(question);
-    setCopiedQuery(true);
-    setTimeout(() => setCopiedQuery(false), 2000);
+  const handleCopyQuery = async () => {
+    const succeeded = await copyText(question);
+    setQueryCopy(succeeded ? 'copied' : 'failed');
+    setTimeout(() => setQueryCopy('idle'), 2500);
   };
 
   const isErrorStatus = result.status !== 'ok';
 
   return (
     <div className="relative min-h-[calc(100dvh-4rem)] overflow-hidden">
+      {/* Announce copy outcomes to assistive tech without disturbing layout */}
+      <p className="sr-only" aria-live="polite">
+        {synthesisCopy === 'copied'
+          ? 'Synthesis copied to clipboard'
+          : synthesisCopy === 'failed'
+          ? 'Copying the synthesis failed. Please select the text manually.'
+          : ''}
+      </p>
       {/* Subtle ambient lighting */}
       <div
         className="absolute top-10 left-1/4 w-[280px] sm:w-[500px] h-[250px] bg-brass/[0.04] rounded-full blur-[140px] pointer-events-none z-0"
@@ -101,10 +110,15 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
               className="inline-flex items-center justify-center space-x-1.5 px-3 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-canvas-surfaceLow hover:bg-canvas-surfaceHigh border border-white/[0.08] hover:border-brass/30 text-xs font-mono text-gray-300 hover:text-brass-light transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brass"
               title="Copy synthesized answer and citations"
             >
-              {copiedSynthesis ? (
+              {synthesisCopy === 'copied' ? (
                 <>
                   <Check className="w-3.5 h-3.5 text-vectorMint" />
                   <span className="text-vectorMint">Copied!</span>
+                </>
+              ) : synthesisCopy === 'failed' ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-amber-300">Copy failed</span>
                 </>
               ) : (
                 <>
@@ -131,8 +145,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
               className="inline-flex items-center space-x-1 text-[11px] font-mono text-gray-400 hover:text-white transition-colors"
               title="Copy question text"
             >
-              {copiedQuery ? (
+              {queryCopy === 'copied' ? (
                 <span className="text-vectorMint">Copied!</span>
+              ) : queryCopy === 'failed' ? (
+                <span className="text-amber-300">Copy failed</span>
               ) : (
                 <>
                   <Copy className="w-3 h-3" />
@@ -142,9 +158,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             </button>
           </div>
 
-          <h2 className="font-serif italic text-base sm:text-lg text-white leading-relaxed break-words">
+          <h1 className="font-serif italic text-base sm:text-lg text-white leading-relaxed break-words">
             "{question}"
-          </h2>
+          </h1>
 
           <div className="mt-3 pt-2 border-t border-white/[0.04] flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slateSteel">
             <span>Corpus: 100k Judgments (538k Chunks)</span>
@@ -164,9 +180,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 <div className="w-6 h-6 rounded bg-brass/10 border border-brass/25 flex items-center justify-center text-brass font-serif font-bold text-xs">
                   §
                 </div>
-                <h3 className="font-serif text-base sm:text-lg font-medium text-white tracking-tight">
+                <h2 className="font-serif text-base sm:text-lg font-medium text-white tracking-tight">
                   Judicial Precedent Synthesis
-                </h3>
+                </h2>
               </div>
 
               <div className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded bg-canvas-base border border-white/[0.06] text-xs font-mono text-brass-light shrink-0">
@@ -202,9 +218,9 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             <div className="bg-canvas-surfaceLow/90 border border-white/[0.08] rounded-xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-y-2">
               <div className="flex items-center space-x-2">
                 <FileText className="w-4 h-4 text-brass" />
-                <h3 className="font-mono text-xs uppercase tracking-wider text-white font-medium">
+                <h2 className="font-mono text-xs uppercase tracking-wider text-white font-medium">
                   Cited Authorities ({result.citations.length})
-                </h3>
+                </h2>
               </div>
 
               <span className="text-[11px] font-mono text-slateSteel bg-canvas-base px-2 py-0.5 rounded border border-white/[0.05]">

@@ -55,11 +55,7 @@ export const App: React.FC = () => {
       setView('results');
     } catch (err: unknown) {
       if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          setError('Inquiry cancelled by user.');
-        } else {
-          setError(err.message);
-        }
+        setError(err.message);
       } else {
         setError('An unexpected error occurred while processing the judicial query.');
       }
