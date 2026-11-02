@@ -1,0 +1,189 @@
+{
+  "reasoned_min_chars": 5000,
+  "benches": [
+    {
+      "bench": "newas",
+      "cnr_prefix": "HCBM01",
+      "records": 446709,
+      "reasoned_records": 89004,
+      "chars": 2145890439,
+      "reasoned_chars": 1364331112,
+      "median_chars": 2266.0,
+      "under_2k": 196652,
+      "label": "Bombay, Appellate Side (HCBM01, inferred)"
+    },
+    {
+      "bench": "hcaurdb",
+      "cnr_prefix": "HCBM03",
+      "records": 354428,
+      "reasoned_records": 88423,
+      "chars": 2230486767,
+      "reasoned_chars": 1627103499,
+      "median_chars": 2576.0,
+      "under_2k": 135936,
+      "label": "Aurangabad (HCBM03)"
+    },
+    {
+      "bench": "testcase",
+      "cnr_prefix": "HCBM04",
+      "records": 182278,
+      "reasoned_records": 21846,
+      "chars": 579667720,
+      "reasoned_chars": 260403442,
+      "median_chars": 1803.0,
+      "under_2k": 101824,
+      "label": "Nagpur (HCBM04, confirmed from sampled judgment headers)"
+    },
+    {
+      "bench": "newos",
+      "cnr_prefix": "HCBM02",
+      "records": 162260,
+      "reasoned_records": 35836,
+      "chars": 960956307,
+      "reasoned_chars": 695833089,
+      "median_chars": 2143.0,
+      "under_2k": 75736,
+      "label": "Bombay, Original Side (HCBM02, inferred)"
+    },
+    {
+      "bench": "kolhcdb",
+      "cnr_prefix": "HCBM07",
+      "records": 80710,
+      "reasoned_records": 16947,
+      "chars": 388457178,
+      "reasoned_chars": 246007703,
+      "median_chars": 2404.0,
+      "under_2k": 33716,
+      "label": "Kolhapur (HCBM07)"
+    },
+    {
+      "bench": "hcbgoa",
+      "cnr_prefix": "HCBM05",
+      "records": 36804,
+      "reasoned_records": 14018,
+      "chars": 318218680,
+      "reasoned_chars": 268590518,
+      "median_chars": 3211.0,
+      "under_2k": 12723,
+      "label": "Goa (HCBM05)"
+    }
+  ],
+  "years": [
+    {
+      "period": "2010-14",
+      "records": 312430,
+      "reasoned_records": 55099,
+      "reasoned_chars": 738125104
+    },
+    {
+      "period": "2015-19",
+      "records": 367988,
+      "reasoned_records": 83779,
+      "reasoned_chars": 1623585302
+    },
+    {
+      "period": "2020-23",
+      "records": 249825,
+      "reasoned_records": 63752,
+      "reasoned_chars": 1189357694
+    },
+    {
+      "period": "2024+",
+      "records": 123009,
+      "reasoned_records": 34174,
+      "reasoned_chars": 501545180
+    },
+    {
+      "period": "before 2010",
+      "records": 209937,
+      "reasoned_records": 29270,
+      "reasoned_chars": 409656083
+    }
+  ],
+  "metadata": {
+    "records": 1263189,
+    "unique_cnr": 1263189,
+    "blank_title": 0,
+    "blank_judge": 1208,
+    "blank_date": 0,
+    "blank_court_name": 1263189,
+    "blank_case_type": 640240,
+    "blank_or_other_outcome": 206031,
+    "earliest_date": "1950-01-03",
+    "latest_date": "2026-05-05"
+  },
+  "date_check": {
+    "date_matches_cnr": 1238256,
+    "date_differs_from_cnr": 24933,
+    "year_differs_from_cnr": 8911,
+    "latest_cnr_date": "3021-03-24"
+  },
+  "supreme_court": {
+    "records": 50053,
+    "first_year": 1950,
+    "last_year": 2024,
+    "reasoned_records": 46321,
+    "reasoned_chars": 1198857013
+  },
+  "court_code_check": [
+    {
+      "court_code": "10_8",
+      "cnr_prefix": "BRHC",
+      "records": 1537592
+    },
+    {
+      "court_code": "14_25",
+      "cnr_prefix": "MNHC",
+      "records": 11776
+    },
+    {
+      "court_code": "16_20",
+      "cnr_prefix": "TRHC",
+      "records": 25784
+    },
+    {
+      "court_code": "18_6",
+      "cnr_prefix": "GAHC",
+      "records": 259627
+    },
+    {
+      "court_code": "19_16",
+      "cnr_prefix": "WBCH",
+      "records": 262259
+    },
+    {
+      "court_code": "1_12",
+      "cnr_prefix": "JKHC",
+      "records": 69253
+    },
+    {
+      "court_code": "22_18",
+      "cnr_prefix": "CGHC",
+      "records": 520635
+    },
+    {
+      "court_code": "24_17",
+      "cnr_prefix": "GJHC",
+      "records": 375856
+    },
+    {
+      "court_code": "27_1",
+      "cnr_prefix": "HCBM",
+      "records": 1263189
+    }
+  ],
+  "text_sample": {
+    "sample_rows": 3121,
+    "repeated_4gram_share": 0.541,
+    "non_english_share": 0.0,
+    "near_duplicate_share": 0.003,
+    "nagpur_in_header_by_bench": {
+      "hcaurdb": "0/884",
+      "newos": "0/405",
+      "newas": "2/1129",
+      "kolhcdb": "0/185",
+      "hcbgoa": "0/94",
+      "testcase": "424/424"
+    }
+  }
+}

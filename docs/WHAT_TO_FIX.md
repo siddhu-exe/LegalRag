@@ -1,71 +1,66 @@
-# What to Fix in LegalRAG (simple version)
+# LegalRAG Plan (simple version)
 
-The project is good for a fresher resume. These are the things that would
-make it trustworthy. The detailed step-by-step plan for an AI agent is in
-`docs/IMPROVEMENT_PLAN.md`.
+The goal has changed. This is no longer only a resume demo: a Bombay High Court lawyer should be
+able to test it on real work, in any practice area. The detailed plan is in
+[IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).
 
-## 1. Fix wrong or overstated claims (about half a day)
+## What we found in the data
 
-- "51.3% of failures are retrieval failures" is wrong. It is 51.3% of **all questions**.
-  Retrieval causes about **84% of the failures**.
-- The README says citations are "verified". The code only checks that the chunk ID exists
-  in the context. It does not check that the chunk supports the sentence.
-- t3.xlarge vs t4.xlarge mix-up. The MIT badge but no LICENSE file. Committed junk
-  (`frontend/.vite`). Too much marketing language.
+- Bombay High Court has 1,263,189 records, more than 12x our current corpus. It covers Bombay, Nagpur,
+  Aurangabad, Kolhapur and Goa.
+- 78.9% of them are short orders under 5,000 characters.
+- So we search about 312,000 fuller judgments (Bombay plus the Supreme Court), and keep every record
+  available for case lookup.
+- The corpus gets bigger while we reduce RAM, so we will probably need an 8 GB server. A 4 GB server
+  only works if testing shows it can.
+- Bombay data ends in May 2026 and Supreme Court data in 2024. The lawyer must be told this.
+- Our old report labelled courts wrongly. Its "Bombay" numbers were really Patna.
 
-## 2. Make the testing trustworthy (4–6 days). Most important.
+Details: [DATA_PROFILE_BOMBAY.md](DATA_PROFILE_BOMBAY.md).
 
-- **Problem:** the same AI model wrote the questions, answered them, and graded the answers.
-  It is grading its own homework.
-- **Problem:** the model you deploy (Qwen on Groq) was never tested. The README numbers
-  are for a different model.
-- **Problem:** no error bars. With 497 questions, small differences (like the reranker
-  dip at Recall@10) may just be luck.
-- **Problem:** many questions are vague. "What did the court decide on bail?" matches
-  thousands of cases, so "retrieval failure" is partly a question problem.
-- **Fix:**
-  - Re-test the deployed model.
-  - Use a judge from a different AI family.
-  - Grade 50 answers yourself and check that the judge agrees with you.
-  - Add confidence intervals.
-  - Report results separately on clear and vague questions.
+## Cloud work (code, in Claude Code on the web)
 
-## 3. Find the right judgment more often (5–8 days)
+1. Code to build the new corpus and the data quality report.
+2. Testing code: error bars, paired tests and an independent judge.
+3. Low-RAM parts: `bm25s`, smaller FAISS index, SQLite for text, and ONNX instead of PyTorch.
+4. Trust features: exact quote check, "not enough evidence" replies, real citations and filters.
+5. IPC to BNS search and case lookup.
+6. Security: login, rate limit and a no-logging mode.
+7. Pilot tools: accept or reject buttons, time saved, and a report.
+8. Reranker training code, trade-off tables and refusal charts.
 
-- Right now about 1 in 3 questions never gets the right case among the top 50 results.
-- **Things to try** (measure each one, keep only what helps):
-  - Group chunks by judgment.
-  - Use a better reranker (bge-reranker).
-  - Let the LLM rewrite the query.
-  - Add court and year filters.
+## PC work (on your machine, with the real data)
 
-## 4. Stop confident wrong answers (2–5 days)
+1. Measure RAM on the current system.
+2. Get 20–30 real questions from the lawyer.
+3. Build the corpus, and read 100 short orders to check that the 5,000-character cut is safe.
+4. Test embedding speed, then create the embeddings on your PC or Kaggle.
+5. Compare index options, then choose the server.
+6. Build the new test set, and grade 50 answers yourself.
+7. Test the system, and read the failures yourself.
+8. Train the reranker, and keep it only if it really helps.
+9. Set the "not enough evidence" threshold.
+10. Load test and deploy.
+11. Run the pilot for 2–4 weeks, then write up the results.
 
-- If the search scores are low, say "I don't have enough evidence" instead of guessing.
-- Show real citations (case title, court, date, quoted text), not chunk IDs.
-- Check each cited sentence against its chunk.
-- Add a "research aid, not legal advice" disclaimer.
+## What makes this look like experienced work
 
-## 5. Make the server safe to share (1–4 days)
+- **Real users:** run the pilot and report results, such as how many answers the lawyer accepted and
+  how much time it saved.
+- **Sound statistics:** use error bars and paired tests, and only claim an improvement when the
+  numbers support it.
+- **Failure analysis:** break failures down by cause and question type, then show what you fixed.
+- **Failed experiments:** keep a log that includes what didn't work. The reranker dip is a good example.
+- **Trade-offs:** show quality against cost, RAM and speed, and explain why you chose one option.
+- **Data quality:** report on OCR errors, duplicates, missing dates and coverage by bench.
+- **Refusal tuning:** show how the "not enough evidence" threshold trades answered questions against
+  wrong answers.
 
-- Anyone on the internet can call your API and use up your Groq key. Add a rate limit
-  and allow only your website (CORS).
-- BM25 search takes about 2.6 seconds. A faster library (`bm25s`) can make it much faster.
-- Track errors and response times. Log queries so you can learn from them.
+Do not claim years of experience you don't have. Let this evidence speak for itself. You should
+also do the failure review and the 50 gradings yourself, so you can explain every number in an
+interview.
 
-## 6. Feedback and presentation (2–3 days)
+## How long
 
-- Add a thumbs up/down button. Turn the bad answers into new test questions.
-- Make the README short and honest, with error bars.
-- Record a 1-minute demo video, because the EC2 server is usually off.
-
-## How long will it take?
-
-| Goal | Work days | Calendar (full-time) | Calendar (part-time) |
-|------|-----------|----------------------|----------------------|
-| Minimum: sections 1, 2, 4 (without sentence checking), 5 (security only), README | 9–12 days | 2–3 weeks | 4–6 weeks |
-| Everything | 19–28 days | 5–6 weeks | 10–12 weeks |
-
-**If you only have one week:** do sections 1 and 2, plus the rate limit and CORS.
-That alone changes the interview story from "I built a RAG" to "I tested my RAG
-properly, found where it fails, and fixed it".
+About 5 weeks of full-time building, plus a 2–4 week pilot. Part-time takes about twice as long.
+The biggest unknown is embedding speed, which we measure in week 2.

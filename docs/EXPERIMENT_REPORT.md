@@ -1,12 +1,14 @@
 # LegalRAG 100k Experiment Report
 
+> **Status:** historical v1 report. Its court labels were corrected on 2 November 2026 (see [DATA_PROFILE_BOMBAY.md](DATA_PROFILE_BOMBAY.md)), and its self-graded generation scores are indicative only (see [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md)). The next benchmark is planned in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).
+
 ## Abstract
 
 Retrieval-Augmented Generation (RAG) applied to legal domains faces unique challenges due to long, unstructured judgment texts, domain-specific terminology, statutory references, and the severe risks of ungrounded hallucinations. This report presents the experimental findings from **LegalRAG**, an end-to-end legal information retrieval and question-answering study over **100,000 Indian High Court judgments** comprising **538,079 chunks**. 
 
 We benchmarked lexical retrieval (BM25), dense retrieval (`BAAI/bge-base-en-v1.5`), hybrid fusion via Reciprocal Rank Fusion (RRF), and neural reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`) against a newly constructed, evidence-grounded benchmark of **497 validated questions** spanning five legal inquiry types. 
 
-Our findings demonstrate that BM25 outperforms out-of-the-box dense retrieval in top-1 judgment recall (**42.66% vs. 19.72%**), driven by exact statutory citations. Hybrid RRF expands overall candidate recall at top-50 to **65.79%**, and cross-encoder reranking lifts top-1 recall to **35.61%**. Downstream RAG generation evaluated by an automated multi-criteria judge achieved an overall score of **3.0926 / 4**, a faithfulness score of **3.4004 / 4**, and an unsupported claim rate of **14.89%**. Detailed failure analysis reveals that **51.3%** of all generation failures stem directly from context omission at the retrieval stage, underscoring the critical dependency of legal LLM grounding on retrieval recall.
+Our findings demonstrate that BM25 outperforms out-of-the-box dense retrieval in top-1 judgment recall (**42.66% vs. 19.72%**), driven by exact statutory citations. Hybrid RRF expands overall candidate recall at top-50 to **65.79%**, and cross-encoder reranking lifts top-1 recall to **35.61%**. Downstream RAG generation evaluated by an automated multi-criteria judge achieved an overall score of **3.0926 / 4**, a faithfulness score of **3.4004 / 4**, and an unsupported claim rate of **14.89%**. Detailed failure analysis reveals that in **51.3%** of all questions the correct judgment was missing from the top-5 context (about 84% of failures), underscoring the critical dependency of legal LLM grounding on retrieval recall.
 
 ---
 
@@ -29,15 +31,15 @@ Our findings demonstrate that BM25 outperforms out-of-the-box dense retrieval in
 
 ### Court Representation Sample
 The 100,000 judgments reflect diverse High Court benches across India:
-- Allahabad / Lucknow (`18_6`): 21,498
+- Gauhati (`18_6`): 21,498
 - Calcutta (`19_16`): 19,772
-- Bombay (`10_8`): 19,679
-- Madras (`1_12`): 10,471
+- Patna (`10_8`): 19,679
+- Jammu & Kashmir (`1_12`): 10,471
 - Gujarat (`24_17`): 8,555
-- Madhya Pradesh (`22_18`): 6,961
-- Delhi (`16_20`): 3,289
-- Kerala (`14_25`): 2,268
-- Punjab & Haryana, Patna, Rajasthan, Karnataka, Gauhati, and other state High Courts.
+- Chhattisgarh (`22_18`): 6,961
+- Tripura (`16_20`): 3,289
+- Manipur (`14_25`): 2,268
+- Other state High Courts. The Bombay (`27_1`) count is not recorded here.
 
 ---
 

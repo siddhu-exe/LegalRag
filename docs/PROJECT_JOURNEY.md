@@ -260,6 +260,7 @@ The research, corpus engineering, retrieval modeling, and RAG evaluation phases 
 - [x] **Real-artifact pre-deployment validation**: Loaded the real 538,079-chunk `bm25.pkl`, `dense.index`, and `legal_chunks.parquet` locally through `load_production_pipeline()`, exercised the full BM25 top-50 → Dense top-50 → RRF k=60 → CrossEncoder top-5 cascade, and confirmed `check_readiness()` → `(True, "ready")` with `/health` 200, `/ready` 200, and `/query` 200 (generation stubbed).
 - [x] **Docker Containerization for Cloud Deployment**: Created non-root (UID 1000) Dockerfile adhering to port 7860 binding standards with automated Hub artifact download scripts for Azure Container Apps and Hugging Face Spaces.
 
-### Next Roadmap (Phase 3 UI & Optimization):
-- [ ] **Streamlit / Web UI**: Modern legal search, citation inspection, and court jurisdiction filtering dashboard.
-- [ ] **Vector Quantization (IVFPQ / HNSW)**: Sub-50ms vector search for scale beyond 1M judgments.
+### Next Roadmap (Phase 3: Bombay High Court Pilot):
+- [x] **Web UI**: React frontend deployed on Vercel.
+- [x] **Bombay HC data profile**: Measured coverage and quality, and found errors in the v1 court labels ([details](DATA_PROFILE_BOMBAY.md)).
+- [ ] **v2 pilot**: New corpus, low-RAM serving, quote checks, a new benchmark and a pilot with a practising lawyer ([plan](IMPROVEMENT_PLAN.md)).

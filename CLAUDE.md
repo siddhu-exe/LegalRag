@@ -7,13 +7,17 @@ one-time README.
 
 ## What this project is
 
-A hybrid-retrieval RAG system over 100,000 Indian High Court judgments, built
-as a flagship **AI Engineering** portfolio project (not ML Engineering, not
-MLOps — see "Positioning" below). The differentiator is a real evaluation
-harness (retrieval scoreboard + LLM-judge generation metrics on a 497-question
-gold benchmark), not just a working demo.
+A hybrid-retrieval RAG system for Indian case law. **v1**, the running system,
+covers 100,000 High Court judgments. **v2**, now planned, is a pilot for a
+practising Bombay High Court lawyer, covering all practice areas. The
+differentiator is evidence: a real evaluation harness now, and real pilot
+results later, not just a working demo.
 
-Target audience: Indian fresher AI/GenAI engineering job market, 2026.
+Audiences: the pilot lawyer, and data science / GenAI hiring in India.
+
+**The active plan is `docs/IMPROVEMENT_PLAN.md`** (cloud tasks C1–C11, PC tasks
+P1–P11). Bombay data numbers are in `docs/DATA_PROFILE_BOMBAY.md`. Record every
+experiment, including failures, in `docs/EXPERIMENT_LOG.md`.
 
 ## Current state (update this section as work progresses)
 
@@ -38,8 +42,8 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
       dependency injection (fail-closed `production` vs explicit `local_stub`)
 - [x] Deploy preparation: Multi-stage `Dockerfile` (port 7860, non-root user
       UID 1000) and `scripts/download_artifacts.py` for Azure Container Apps / HF Hub
-- [ ] Minimal frontend (Streamlit is fine) — query box, answer, cited chunks
-      with source metadata, latency shown
+- [x] React frontend deployed on Vercel — query box, answer, cited chunks with
+      source metadata, latency shown
 - [x] README rewritten with retrieval/generation eval benchmarks, API quickstart,
       and honest analysis of reranker Recall@5/10 trade-offs
 - [x] Honest paragraph addressing the reranker Recall@5/10 dip documented in
@@ -49,17 +53,35 @@ Target audience: Indian fresher AI/GenAI engineering job market, 2026.
       BM25 `"bm25"` serialization mismatch, restored the BGE query instruction in
       `DenseRetriever.search()`, and validated `load_production_pipeline()` /
       `check_readiness()` / `POST /query` locally
+- [x] Bombay HC data profile (`scripts/profile_bombay_hc.py`) and v2 plan written
+- [ ] v2 plan tasks C1–C11 and P1–P11: none started
 
-## Locked architecture — do not change without explicit discussion
+## Approved v2 changes (decided 2026-11-02)
 
-These were deliberately chosen and benchmarked. Don't "improve" them silently;
-if something looks suboptimal, flag it and ask before changing.
+The owner approved moving beyond the v1 lock for the pilot:
+
+- **Corpus**: Bombay HC (`court_code = 27_1`) plus the Supreme Court config, all
+  practice areas. Suggested search index: 312,395 judgments of 5,000+ characters,
+  with all records available through case lookup. Plan task P3 tests this cut.
+- **Retrieval**: `bm25s`, approximate FAISS, a SQLite chunk store, ONNX Runtime and
+  a fine-tuned reranker may replace v1 parts, each behind a flag, and each
+  becoming the default only after the benchmark or a recorded trade-off supports it.
+- **Benchmark**: a new v2 benchmark is required. The 497-question set was built on
+  the v1 corpus, and its scores do not carry over.
+
+Not approved: overwriting v1 artifacts. v2 builds go in `artifacts/v2/`.
+
+## v1 baseline — frozen, keep reproducible
+
+These were deliberately chosen and benchmarked. They describe the running v1 system
+and remain the comparison baseline. Don't change them silently; any other change
+needs discussion.
 
 - **Dataset**: `overthelex/indian-court-decisions`, config `high_courts`,
   split `train`, streamed with `buffer_size=50000, seed=42`
-- **Corpus size**: 100,000 judgments — this is FINAL, not an intermediate
-  step. Do not re-embed at a different scale. (An earlier 80k run exists as
-  throwaway scaffolding, superseded — not a numbered experiment.)
+- **Corpus size**: 100,000 judgments for v1. Do not re-embed v1 at a different
+  scale. (An earlier 80k run exists as throwaway scaffolding, superseded — not a
+  numbered experiment.)
 - **Chunking**: `RecursiveCharacterTextSplitter`, chunk_size=1200,
   chunk_overlap=200, min_chunk_length=100. Produces 538,079 chunks.
 - **Retrieval cascade**: BM25 (k1=1.5, b=0.75, regex tokenization) top-50 +
@@ -106,16 +128,24 @@ if something looks suboptimal, flag it and ask before changing.
    `ms-marco-MiniLM-L-6-v2` is trained on general web search / MS-MARCO and
    is not domain-adapted to specialized Indian legal phrasing. This is
    documented honestly in all project literature.
+6. **v1 report court labels were wrong (FIXED in docs)**: `10_8` is Patna, not Bombay.
+   Bombay is `27_1`. Verified against CNR prefixes; see `docs/DATA_PROFILE_BOMBAY.md`.
+7. **Source data limits**: Bombay data ends May 2026 and Supreme Court data in 2024.
+   There are no law report citations, official links or overruled/treatment labels.
+   Never say a judgment is still good law, or that an unfound case does not exist.
 
-## Positioning — AI Engineering, not ML Engineering / not MLOps
+## Positioning — data science with GenAI, shown by evidence
 
-- Say "AI Engineer" / "GenAI Engineer" in resume bullets, READMEs, and any
-  pitch. Not "ML Engineer."
-- Why: ML Engineers train models from scratch (architectures, gradient
-  descent, hyperparameter search). This project applies pre-trained models
-  (BGE embeddings, MS-MARCO cross-encoder, an LLM via API) — that's AI
-  Engineering: RAG architecture, retrieval engineering, evaluation
-  infrastructure, latency, production failure handling.
+- Target "Data Scientist (GenAI)" and "AI Engineer" roles.
+- The owner wants the project to read like the work of someone with 3–5 years of
+  experience. Achieve this with evidence only. **Never write or suggest claiming years
+  of experience the owner does not have**, in a resume, README or pitch.
+- The evidence required: real users, sound statistics, failure analysis, failed
+  experiments, trade-offs, data quality and refusal tuning. Section 5 of
+  `docs/IMPROVEMENT_PLAN.md` maps each to a file. The owner does the failure review and
+  human labels personally, and must be able to explain every number.
+- This project applies pre-trained models and may fine-tune a small reranker. Don't
+  describe it as training models from scratch.
 - Full MLOps (drift monitoring, automated retraining) is NOT needed and
   should not be added — there's no trained-from-scratch model to retrain or
   monitor for drift. Don't scope-creep into this.
@@ -126,6 +156,10 @@ if something looks suboptimal, flag it and ask before changing.
 
 ## Hardware / environment constraints — important for how work gets split
 
+- **Hardware**: Core Ultra 7 265, about 31 GB RAM, RTX A1000 (8 GB VRAM). Enough to
+  fine-tune the reranker and build v2 indexes. Embedding speed is unmeasured.
+- **Claude Code on the web**: for code and stub tests (tasks C1–C11). Run anything using
+  real artifacts, large RAM or the GPU on the local machine (tasks P1–P11).
 - **Current local machine**: can hold the full real stack (BM25 index + FAISS
   index + BGE-base model + cross-encoder model + torch/transformers). Measured
   with the real 538,079-chunk artifacts: ≈10.5 GB peak RSS, ≈29.3 s cold
@@ -172,6 +206,8 @@ src/legalrag/
   evaluation/
     grounding.py  # find_gold_chunks evidence matcher
     metrics.py    # calculate_recall_at_k, failure taxonomy, aggregation
+scripts/
+  profile_bombay_hc.py  # Bombay HC / Supreme Court coverage and data quality profile
 tests/            # 133 unit & integration tests, stdlib unittest + pytest + TestClient
 ```
 

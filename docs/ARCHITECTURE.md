@@ -1,5 +1,7 @@
 # System Architecture: LegalRAG
 
+> **Status:** this file describes the v1 system (100,000 judgments, 538,079 chunks), which is what runs today. v2, a Bombay High Court pilot, is planned in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) and has not been built yet.
+
 ## Overview
 
 LegalRAG is a specialized legal information retrieval and question-answering architecture designed for complex, unstructured Indian High Court judgments. The system addresses the core failure modes of standard RAG pipelines—statutory citation mismatch, dense embedding semantic smoothing, context fragmentation, and ungrounded generation—via a hybrid multi-stage retrieval pipeline paired with automated evidence grounding.
@@ -373,3 +375,23 @@ Verified end-to-end with the real artifacts: `check_readiness()` → `(True, "re
 `GET /health` → 200, `GET /ready` → 200, and `POST /query` returns a grounded response with
 resolvable citations when generation is stubbed. Generation latency is additional and reported
 per request as `generate_ms`.
+
+## Planned v2 Architecture (not built)
+
+The Bombay High Court pilot keeps the same stages and changes how they are stored and served. Each
+change sits behind a flag until tests support it.
+
+| Stage | v1 | v2 candidate |
+| :--- | :--- | :--- |
+| Corpus | 100,000 mixed High Court judgments | Bombay HC and Supreme Court judgments, 5,000+ characters (312,395) |
+| Case lookup | None | All records, by title, CNR, date and judge |
+| BM25 | `rank_bm25` pickle in RAM | `bm25s` with mmap |
+| Dense index | `IndexFlatIP` | IVF-SQ8 or OPQ-PQ, chosen by measured recall |
+| Chunk text | pandas in RAM | SQLite on disk |
+| Embedder and reranker | PyTorch | ONNX Runtime, quantized |
+| Reranker model | `ms-marco-MiniLM-L-6-v2` | Fine-tuned version, if a paired test supports it |
+| Query handling | As typed | IPC to BNS section mapping, with filters |
+| Answer safety | Chunk ID filter | Exact quote check and refusal on weak evidence |
+
+Serving targets, instance choice and all v2 figures come from plan task P5. Estimates are in
+[DATA_PROFILE_BOMBAY.md](DATA_PROFILE_BOMBAY.md).

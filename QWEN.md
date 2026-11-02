@@ -1,6 +1,8 @@
 # LegalRAG
 
-Production-hardened, hybrid-retrieval RAG (Retrieval-Augmented Generation) system over 100,000 Indian High Court judgment texts with evidence-grounded evaluation and a FastAPI backend service.
+Hybrid-retrieval RAG (Retrieval-Augmented Generation) system over 100,000 Indian High Court judgment texts with evidence-grounded evaluation and a FastAPI backend service.
+
+> **Status:** this file describes the v1 system (100,000 judgments, 538,079 chunks), which is what runs today. v2, a Bombay High Court pilot, is planned in [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) and has not been built yet.
 
 ## Project Overview
 
@@ -116,7 +118,7 @@ LegalRAG/
   - Citation Correctness: **3.25 / 4**
   - Answer Relevance: **3.10 / 4**
   - Unsupported Claim Rate: **14.89%**
-  - Retrieval Omission Failure: **51.31%** (primary bottleneck)
+  - Retrieval Omission Failure: **51.31%** of all questions, about 84% of failures (primary bottleneck)
 
 ## Testing
 

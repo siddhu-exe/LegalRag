@@ -6,6 +6,8 @@ It combines keyword search (BM25), semantic search (BGE) and a cross-encoder rer
 
 **[Live demo](https://legalrag-six.vercel.app)** · React on Vercel, FastAPI on AWS EC2. The server is stopped when idle, so the demo may show a standby screen.
 
+**Next:** a pilot with a practising Bombay High Court lawyer, on a new corpus of Bombay HC and Supreme Court judgments. It is planned, not built. See the [plan](docs/IMPROVEMENT_PLAN.md) and the [data profile](docs/DATA_PROFILE_BOMBAY.md). Everything below describes the current v1 system.
+
 ## How it works
 
 ```text
@@ -34,7 +36,7 @@ What we learned:
 - **BM25 beats dense search.** Legal queries lean on exact terms such as *Section 138 NI Act*.
 - **Hybrid fusion gives the widest net**, with the best recall at 50 candidates.
 - **The reranker helps @1 but hurts @5.** The MS-MARCO cross-encoder is not tuned for Indian legal language, so we report this as is.
-- **Retrieval is the bottleneck.** In 255 of 497 questions (51.3%) the gold judgment was not in the top-5 context.
+- **Retrieval is the bottleneck.** In 255 of 497 questions (51.3%) the gold judgment was not in the top-5 context. That is about 84% of the 303 failures.
 
 Answer quality (LLM judge, 1–4 scale): faithfulness 3.40, answer relevance 3.10, citation correctness 3.25. These scores come from an LLM judge, and the same model family wrote the questions, answered them and judged them, so treat them as indicative. Citations are checked only to confirm the chunk ID was in the context, not that the chunk supports the claim.
 
@@ -96,12 +98,13 @@ docs/           architecture, experiment report, reproducibility
 
 ## Docs
 
-[Architecture](docs/ARCHITECTURE.md) · [Experiment report](docs/EXPERIMENT_REPORT.md) · [Reproducibility](docs/REPRODUCIBILITY.md) · [Project journey](docs/PROJECT_JOURNEY.md) · [Known issues and fixes](docs/WHAT_TO_FIX.md)
+[v2 plan](docs/IMPROVEMENT_PLAN.md) · [Plan in simple words](docs/WHAT_TO_FIX.md) · [Bombay HC data profile](docs/DATA_PROFILE_BOMBAY.md) · [Experiment log](docs/EXPERIMENT_LOG.md) · [Architecture](docs/ARCHITECTURE.md) · [Experiment report](docs/EXPERIMENT_REPORT.md) · [Reproducibility](docs/REPRODUCIBILITY.md) · [Project journey](docs/PROJECT_JOURNEY.md)
 
 ## Limitations
 
 - Each query takes about 7–10 s on CPU, and BM25 over 538k chunks accounts for most of the retrieval time.
 - There is no authentication and CORS is open. This is a demo, not a hardened service.
+- The corpus is a sample, so a missing result does not mean a case does not exist. The system cannot tell whether a judgment is still good law.
 - This is not legal advice.
 
 ## Credits

@@ -2,6 +2,8 @@
 
 > **File Purpose**: This document provides a concise, high-density factual summary of the **LegalRAG** repository, architecture, experimental findings, and data schemas for language models and automated agents.
 
+> **Status:** this file describes the v1 system (100,000 judgments, 538,079 chunks), which is what runs today. v2, a Bombay High Court pilot, is planned in [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md) and has not been built yet.
+
 ---
 
 ## 1. Project Summary
@@ -12,7 +14,7 @@
 - **Source**: Hugging Face `overthelex/indian-court-decisions` (config: `high_courts`, split: `train`).
 - **Total Chunks**: 538,079 chunks (average 5.38 chunks per document).
 - **Evaluation Benchmark**: 497 evidence-grounded questions across 5 question types.
-- **Key Insight**: Lexical BM25 retrieval outperforms out-of-the-box dense vector retrieval in top-1 recall (**42.66% vs. 19.72%**). Hybrid Reciprocal Rank Fusion (RRF) expands broad candidate recall to **65.79%** at top-50, and neural reranking lifts top-1 recall to **35.61%**. Over **51.3%** of all RAG generation failures are caused directly by context omission at the retrieval stage.
+- **Key Insight**: Lexical BM25 retrieval outperforms out-of-the-box dense vector retrieval in top-1 recall (**42.66% vs. 19.72%**). Hybrid Reciprocal Rank Fusion (RRF) expands broad candidate recall to **65.79%** at top-50, and neural reranking lifts top-1 recall to **35.61%**. In **51.3%** of all questions the correct judgment was missing from the top-5 context, which is about 84% of failures.
 
 ---
 

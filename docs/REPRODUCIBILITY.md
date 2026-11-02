@@ -1,5 +1,7 @@
 # Reproducibility Guide: LegalRAG
 
+> **Status:** this guide reproduces v1. To reproduce the Bombay HC data profile, run `python scripts/profile_bombay_hc.py`. v2 build steps will be added as [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) tasks finish.
+
 This guide details the exact environment, hardware requirements, dependencies, and execution workflow to reproduce the 100,000-judgment LegalRAG experiment from scratch or resume from intermediate checkpoints.
 
 ---

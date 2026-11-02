@@ -1,6 +1,6 @@
 # Repository Guidelines
 
-Contributor guide for **LegalRAG**, a hybrid-retrieval, evidence-grounded QA system over 100,000 Indian High Court judgments.
+Contributor guide for **LegalRAG**, a hybrid-retrieval, evidence-grounded QA system. The running v1 covers 100,000 Indian High Court judgments. Active work is the v2 Bombay High Court pilot in `docs/IMPROVEMENT_PLAN.md`.
 
 ## Project Structure & Module Organization
 - `src/legalrag/` — installable package (import as `legalrag.*`):
@@ -39,4 +39,4 @@ Contributor guide for **LegalRAG**, a hybrid-retrieval, evidence-grounded QA sys
 - Never commit secrets or `.env`; provide `GROQ_API_KEY`, `HF_REPO_ID`, `HF_TOKEN` via environment only.
 - `GROQ_MODEL_NAME` must be a model ID currently served by Groq (check `GET https://api.groq.com/openai/v1/models`); a stale ID returns a provider 404 that surfaces as HTTP 502.
 - Never commit or bake `artifacts/` into the image; they are large, gitignored, and provisioned at startup.
-- Locked architecture (dataset scale, chunk sizes, retrieval cascade) — discuss before changing.
+- v1 baseline (dataset scale, chunk sizes, retrieval cascade) stays reproducible and its artifacts are never overwritten. Approved v2 changes are listed in `CLAUDE.md`; v2 builds go in `artifacts/v2/`. Discuss anything else before changing it.
