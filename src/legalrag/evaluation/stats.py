@@ -14,6 +14,7 @@ Everything is seeded and deterministic. Only numpy is needed.
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import asdict, dataclass
 from statistics import NormalDist
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -256,19 +257,50 @@ def percent_agreement(a: Sequence[Any], b: Sequence[Any]) -> float:
     return float(np.mean([x == y for x, y in zip(a, b)]))
 
 
-def cohens_kappa(a: Sequence[Any], b: Sequence[Any], weights: Optional[str] = None) -> float:
+def _is_number(value: Any) -> bool:
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
+
+def cohens_kappa(
+    a: Sequence[Any],
+    b: Sequence[Any],
+    weights: Optional[str] = None,
+    scale: Optional[Sequence[Any]] = None,
+) -> float:
     """Cohen's kappa for two raters. ``weights`` may be None, "linear" or "quadratic".
 
-    Weighted kappa treats labels as ordered (sorted order) and suits 1-4 judge scores.
+    Weighted kappa measures how far apart two labels are:
+      * ``scale`` given: the full ordered scale, for example ``(1, 2, 3, 4)``. Every label must be
+        in it, and unused scale points are allowed. Numeric scales use the numeric values, others
+        use position in the scale.
+      * no ``scale`` and every label numeric: the numeric values, so labels {1, 3, 4} are not
+        treated as equally spaced.
+      * otherwise: position in the sorted list of labels that occur (the original behaviour).
+    The distance is ``|x - y| / (max - min)``. Unweighted kappa does not depend on ``scale``,
+    except that labels outside ``scale`` raise ValueError.
     Returns nan when kappa is undefined (both raters used one identical single label).
     """
     if len(a) != len(b):
         raise ValueError("Label lists must have the same length.")
     if weights not in (None, "linear", "quadratic"):
         raise ValueError("weights must be None, 'linear' or 'quadratic'.")
+    used = set(a) | set(b)
+    if scale is not None:
+        categories = list(scale)
+        if len(set(categories)) != len(categories):
+            raise ValueError("scale must not repeat a label.")
+        outside = sorted((x for x in used if x not in set(categories)), key=repr)
+        if outside:
+            raise ValueError(f"Labels outside the scale {tuple(categories)}: {outside}.")
+    else:
+        categories = sorted(used) if used else []
     if not len(a):
         return float("nan")
-    categories = sorted(set(a) | set(b))
+    if all(_is_number(c) for c in categories):
+        positions = np.array([float(c) for c in categories])
+    else:
+        positions = np.arange(len(categories), dtype=float)
+
     index = {label: i for i, label in enumerate(categories)}
     size = len(categories)
     observed = np.zeros((size, size))
@@ -280,7 +312,7 @@ def cohens_kappa(a: Sequence[Any], b: Sequence[Any], weights: Optional[str] = No
     if weights is None or size == 1:
         penalty = 1.0 - np.eye(size)
     else:
-        distance = np.abs(np.subtract.outer(np.arange(size), np.arange(size))) / (size - 1)
+        distance = np.abs(np.subtract.outer(positions, positions)) / (positions.max() - positions.min())
         penalty = distance if weights == "linear" else distance**2
     expected_disagreement = float((penalty * expected).sum())
     if expected_disagreement == 0.0:
@@ -295,10 +327,11 @@ def kappa_interval(
     confidence: float = 0.95,
     n_resamples: int = 2_000,
     seed: int = 0,
+    scale: Optional[Sequence[Any]] = None,
 ) -> Interval:
-    """Cohen's kappa with a percentile bootstrap interval over items."""
+    """Cohen's kappa with a percentile bootstrap interval over items. ``scale`` as in cohens_kappa."""
     _check_confidence(confidence)
-    estimate = cohens_kappa(a, b, weights)
+    estimate = cohens_kappa(a, b, weights, scale)
     n = len(a)
     if n == 0:
         return Interval(float("nan"), float("nan"), float("nan"), 0, "bootstrap", confidence)
@@ -307,7 +340,7 @@ def kappa_interval(
     draws: List[float] = []
     for _ in range(n_resamples):
         picks = rng.integers(0, n, size=n)
-        value = cohens_kappa([first[i] for i in picks], [second[i] for i in picks], weights)
+        value = cohens_kappa([first[i] for i in picks], [second[i] for i in picks], weights, scale)
         if not math.isnan(value):
             draws.append(value)
     if not draws:

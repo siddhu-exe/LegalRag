@@ -72,6 +72,7 @@ from legalrag.generation.prompts import SYSTEM_PROMPT, build_rag_prompt, extract
 DEFAULT_OUT_DIR = Path("results/eval_v2")
 DEFAULT_GENERATOR_MODEL = "qwen/qwen3.8-27b"  # same default as the API settings
 SCORE_FIELDS = ("answer_relevance", "faithfulness", "citation_correctness")
+SCORE_SCALE = (1, 2, 3, 4)
 HUMAN_FIELDS = SCORE_FIELDS + ("hallucination",)
 
 
@@ -225,13 +226,20 @@ def judge_agreement(records: Sequence[Dict[str, Any]], human: Sequence[Dict[str,
             continue
         judge_labels = [a for a, _ in pairs]
         human_labels = [b for _, b in pairs]
-        entry: Dict[str, Any] = {
-            "n": len(pairs),
-            "percent_agreement": percent_agreement(judge_labels, human_labels),
-            "kappa": kappa_interval(judge_labels, human_labels, None, seed=seed).to_dict(),
-        }
-        if field in SCORE_FIELDS:
-            entry["kappa_quadratic_weighted"] = kappa_interval(judge_labels, human_labels, "quadratic", seed=seed).to_dict()
+        # Scores are on the fixed 1-4 scale, so distances use the label values even if nobody used a 2.
+        scale = SCORE_SCALE if field in SCORE_FIELDS else None
+        try:
+            entry: Dict[str, Any] = {
+                "n": len(pairs),
+                "percent_agreement": percent_agreement(judge_labels, human_labels),
+                "kappa": kappa_interval(judge_labels, human_labels, None, seed=seed, scale=scale).to_dict(),
+            }
+            if field in SCORE_FIELDS:
+                entry["kappa_quadratic_weighted"] = kappa_interval(
+                    judge_labels, human_labels, "quadratic", seed=seed, scale=scale
+                ).to_dict()
+        except ValueError as exc:  # for example a human label of 5; the saved items are not affected
+            raise SystemExit(f"Cannot compute agreement for {field}: {exc}") from exc
         report["metrics"][field] = entry
     return report
 

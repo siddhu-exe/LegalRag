@@ -252,6 +252,73 @@ class TestKappa(unittest.TestCase):
             cohens_kappa([1, 2], [1, 2], weights="cubic")
         self.assertTrue(math.isnan(cohens_kappa([], [])))
 
+    # Six items, labels {1, 3, 4}; nobody uses a 2.  (rater A, rater B):
+    #   (1,1) (1,3) (3,3) (3,4) (4,4) (4,3)
+    # Observed shares are 1/6 per pair. Rater A uses each label 2/6 = 1/3; rater B uses 1 -> 1/6,
+    # 3 -> 3/6, 4 -> 2/6.
+    #
+    # Linear weights on the label VALUES (range 4 - 1 = 3): d(1,3) = 2/3, d(1,4) = 1, d(3,4) = 1/3.
+    #   observed disagreement = (2/3 + 1/3 + 1/3) / 6 = 2/9
+    #   expected disagreement = 1/3*(1/2*2/3 + 1/3*1) + 1/3*(1/6*2/3 + 1/3*1/3) + 1/3*(1/6*1 + 1/2*1/3)
+    #                         = 2/9 + 2/27 + 1/9 = 11/27
+    #   kappa = 1 - (2/9) / (11/27) = 1 - 6/11 = 5/11
+    # Quadratic weights: d(1,3) = 4/9, d(1,4) = 1, d(3,4) = 1/9.
+    #   observed = (4/9 + 1/9 + 1/9) / 6 = 1/9;  expected = 5/27 + 1/27 + 2/27 = 8/27
+    #   kappa = 1 - (1/9) / (8/27) = 1 - 3/8 = 5/8
+    # The old rank-based answer treated 1, 3, 4 as positions 0, 1, 2 and gave linear kappa 2/5.
+    A_GAP = [1, 1, 3, 3, 4, 4]
+    B_GAP = [1, 3, 3, 4, 4, 3]
+
+    def test_weighted_kappa_uses_label_values_not_rank(self):
+        self.assertAlmostEqual(cohens_kappa(self.A_GAP, self.B_GAP, "linear"), 5 / 11)
+        self.assertAlmostEqual(cohens_kappa(self.A_GAP, self.B_GAP, "quadratic"), 5 / 8)
+        self.assertNotAlmostEqual(cohens_kappa(self.A_GAP, self.B_GAP, "linear"), 2 / 5)
+
+    def test_full_scale_gives_the_same_answer_as_values_and_differs_from_rank(self):
+        with_scale = cohens_kappa(self.A_GAP, self.B_GAP, "linear", scale=(1, 2, 3, 4))
+        self.assertAlmostEqual(with_scale, 5 / 11)
+        self.assertAlmostEqual(cohens_kappa(self.A_GAP, self.B_GAP, "quadratic", scale=(1, 2, 3, 4)), 5 / 8)
+        # Strings have no numeric value, so they keep the rank behaviour: 1, 3, 4 as 0, 1, 2.
+        as_text = cohens_kappa([str(x) for x in self.A_GAP], [str(x) for x in self.B_GAP], "linear")
+        self.assertAlmostEqual(as_text, 2 / 5)
+
+    def test_unweighted_kappa_is_unchanged_by_scale(self):
+        a = ["y"] * 20 + ["y"] * 5 + ["n"] * 10 + ["n"] * 15
+        b = ["y"] * 20 + ["n"] * 5 + ["y"] * 10 + ["n"] * 15
+        self.assertAlmostEqual(cohens_kappa(a, b), 0.4)
+        self.assertAlmostEqual(cohens_kappa(a, b, scale=("n", "y")), 0.4)
+        self.assertAlmostEqual(cohens_kappa(self.A_GAP, self.B_GAP), cohens_kappa(self.A_GAP, self.B_GAP, scale=(1, 2, 3, 4)))
+
+    def test_labels_outside_the_scale_raise(self):
+        with self.assertRaises(ValueError):
+            cohens_kappa([1, 2, 5], [1, 2, 3], "linear", scale=(1, 2, 3, 4))
+        with self.assertRaises(ValueError):
+            cohens_kappa([1, 2], [1, 2], scale=(1, 2, 2, 3))  # repeated scale label
+        with self.assertRaises(ValueError):
+            kappa_interval([1, 9], [1, 2], "linear", scale=(1, 2, 3, 4))
+
+    def test_text_labels_keep_the_old_rank_behaviour(self):
+        a, b = ["low", "mid", "high", "mid"], ["low", "high", "high", "mid"]
+        # No scale: sorted labels high, low, mid sit at positions 0, 1, 2 (alphabetical, as before).
+        alphabetical = {"high": 0, "low": 1, "mid": 2}
+        self.assertAlmostEqual(
+            cohens_kappa(a, b, "linear"),
+            cohens_kappa([alphabetical[x] for x in a], [alphabetical[x] for x in b], "linear"),
+        )
+        # With a scale: position in the scale (low < mid < high).
+        self.assertAlmostEqual(
+            cohens_kappa(a, b, "linear", scale=("low", "mid", "high")),
+            cohens_kappa([0, 1, 2, 1], [0, 2, 2, 1], "linear"),
+        )
+
+    def test_numpy_integer_labels_count_as_numeric(self):
+        a, b = np.array(self.A_GAP), np.array(self.B_GAP)
+        self.assertAlmostEqual(cohens_kappa(list(a), list(b), "linear"), 5 / 11)
+
+    def test_interval_passes_scale_through(self):
+        interval = kappa_interval(self.A_GAP * 5, self.B_GAP * 5, "linear", n_resamples=300, seed=1, scale=(1, 2, 3, 4))
+        self.assertAlmostEqual(interval.estimate, 5 / 11)
+
     def test_interval_contains_estimate_and_is_reproducible(self):
         a = [1, 2, 3, 4, 3, 2, 1, 4, 3, 3, 2, 2, 4, 1, 3, 2]
         b = [1, 2, 3, 3, 3, 2, 2, 4, 3, 4, 2, 1, 4, 1, 3, 3]

@@ -299,6 +299,30 @@ class TestMain(unittest.TestCase):
 
 
 class TestAgreement(unittest.TestCase):
+    # Same six items as the hand-computed example in test_stats.py: judge labels 1,1,3,3,4,4 against
+    # human labels 1,3,3,4,4,3. Nobody used a 2, yet the 1-4 scale is used: quadratic kappa is 5/8.
+    def test_weighted_kappa_uses_the_fixed_one_to_four_scale(self):
+        judge = [1, 1, 3, 3, 4, 4]
+        human_scores = [1, 3, 3, 4, 4, 3]
+        records = [{"item_id": str(i), "scores": dict(GOOD_SCORES, faithfulness=v)} for i, v in enumerate(judge)]
+        human = [{"item_id": str(i), "faithfulness": v} for i, v in enumerate(human_scores)]
+        entry = script.judge_agreement(records, human)["metrics"]["faithfulness"]
+        self.assertAlmostEqual(entry["kappa_quadratic_weighted"]["estimate"], 5 / 8)
+
+    def test_a_human_label_outside_one_to_four_stops_with_a_clear_message(self):
+        records = [{"item_id": "1", "scores": dict(GOOD_SCORES)}, {"item_id": "2", "scores": dict(GOOD_SCORES)}]
+        human = [{"item_id": "1", "faithfulness": 4}, {"item_id": "2", "faithfulness": 5}]
+        with self.assertRaises(SystemExit) as ctx:
+            script.judge_agreement(records, human)
+        self.assertIn("faithfulness", str(ctx.exception))
+        self.assertIn("outside the scale", str(ctx.exception))
+
+    def test_hallucination_labels_need_no_scale(self):
+        records = [{"item_id": str(i), "scores": dict(GOOD_SCORES, hallucination=bool(i % 2))} for i in range(6)]
+        human = [{"item_id": str(i), "hallucination": bool(i % 2)} for i in range(6)]
+        entry = script.judge_agreement(records, human)["metrics"]["hallucination"]
+        self.assertAlmostEqual(entry["kappa"]["estimate"], 1.0)
+
     def test_skips_unlabelled_and_unknown_items(self):
         records = [{"item_id": "1", "scores": dict(GOOD_SCORES)}, {"item_id": "2", "scores": dict(GOOD_SCORES, faithfulness=2)}]
         human = [
