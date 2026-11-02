@@ -487,6 +487,18 @@ class BuildStats:
         """True when scanned == dropped + kept, i.e. no record vanished without a reason."""
         return self.scanned == self.accounted
 
+    @property
+    def near_duplicate_share_of_reasoned(self) -> Optional[float]:
+        """near-duplicate drops / (kept in the search index + near-duplicate drops); None if both are 0."""
+        reasoned = self.kept_search + self.dropped.get("near_duplicate", 0)
+        return self.dropped.get("near_duplicate", 0) / reasoned if reasoned else None
+
+    @property
+    def date_conflict_share_of_kept(self) -> Optional[float]:
+        """date conflicts / all kept records (search index + lookup only); None if nothing was kept."""
+        kept = self.kept_search + self.kept_lookup_only
+        return self.date_conflicts / kept if kept else None
+
     def to_dict(self, top_unmapped: int = 25) -> Dict[str, Any]:
         return {
             "scanned": self.scanned,
@@ -501,6 +513,8 @@ class BuildStats:
             "date_source": dict(self.date_source),
             "date_conflicts": self.date_conflicts,
             "year_conflicts": self.year_conflicts,
+            "near_duplicate_share_of_reasoned": self.near_duplicate_share_of_reasoned,
+            "date_conflict_share_of_kept": self.date_conflict_share_of_kept,
             "unknown_bench": dict(self.unknown_bench),
             "bench_cnr_prefix_mismatch": self.bench_cnr_prefix_mismatch,
             "case_type_source": dict(self.case_type_source),

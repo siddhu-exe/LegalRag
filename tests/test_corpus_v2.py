@@ -600,6 +600,106 @@ class TestBuildScript(unittest.TestCase):
             self.assertEqual(len(by_file), 1)
 
 
+class TestReportedRates(unittest.TestCase):
+    def test_rates_are_computed_from_the_counts(self):
+        b = builder()
+        for i in range(3):  # three distinct reasoned records, the first with a date conflict
+            conflict = {"cnr": f"HCBM01_{i}_2014-01-01", "decision_date": "2015-06-01"} if i == 0 else {}
+            b.process(record(cnr=conflict.get("cnr", f"R{i}"), text=body(f"r{i}"), **{k: v for k, v in conflict.items() if k != "cnr"}), HC)
+        b.process(record(cnr="DUP", text=body("r1")), HC)  # near duplicate of R1: dropped
+        b.process(record(cnr="SHORT", text="Rule discharged."), HC)  # lookup only
+        stats = b.stats.to_dict()
+        self.assertEqual((stats["kept_search_index"], stats["dropped_by_reason"]["near_duplicate"], stats["kept_lookup_only"]), (3, 1, 1))
+        self.assertEqual(stats["near_duplicate_share_of_reasoned"], 1 / 4)  # 1 / (3 kept + 1 dropped)
+        self.assertEqual(stats["date_conflicts"], 1)
+        self.assertEqual(stats["date_conflict_share_of_kept"], 1 / 4)  # 1 / (3 search + 1 lookup)
+
+    def test_a_dropped_near_duplicate_does_not_count_as_a_kept_date_conflict(self):
+        b = builder()
+        b.process(record(cnr="K1", text=body("same")), HC)
+        b.process(record(cnr="HCBM01_9_2014-01-01", text=body("same"), decision_date="2015-06-01"), HC)  # dropped, conflicting
+        stats = b.stats.to_dict()
+        self.assertEqual(stats["date_conflicts"], 0)
+        self.assertEqual(stats["date_conflict_share_of_kept"], 0.0)
+        self.assertEqual(stats["near_duplicate_share_of_reasoned"], 1 / 2)
+
+    def test_division_by_zero_gives_none(self):
+        empty = builder().stats.to_dict()
+        self.assertIsNone(empty["near_duplicate_share_of_reasoned"])
+        self.assertIsNone(empty["date_conflict_share_of_kept"])
+
+        only_short = builder()
+        only_short.process(record(cnr="S1", text="Adjourned."), HC)
+        stats = only_short.stats.to_dict()
+        self.assertIsNone(stats["near_duplicate_share_of_reasoned"])  # nothing reasoned
+        self.assertEqual(stats["date_conflict_share_of_kept"], 0.0)
+
+        nothing_kept = builder()
+        nothing_kept.process(record(cnr="E1", text="   "), HC)  # dropped as empty text
+        self.assertIsNone(nothing_kept.stats.to_dict()["date_conflict_share_of_kept"])
+
+    def test_rates_are_json_serialisable_with_null(self):
+        self.assertIn('"near_duplicate_share_of_reasoned": null', json.dumps(builder().stats.to_dict()))
+
+
+class TestRatesInBuildOutput(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import pyarrow  # noqa: F401
+        except ImportError:  # pragma: no cover
+            raise unittest.SkipTest("pyarrow is not installed")
+        cls.script = _load_script()
+
+    def build(self, tmp, rows):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        source = tmp / "hc.parquet"
+        pq.write_table(pa.Table.from_pylist(rows), source)
+        return self.script.build({"high_courts": [source], "supreme_court": []}, tmp / "v2" / "o",
+                                 BuildConfig(min_chars=200, today=TODAY))
+
+    def test_rates_are_in_build_report_json_and_the_printed_summary(self):
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            rows = [
+                record(cnr="HCBM01_1_2015-06-01", text=body("a")),
+                record(cnr="HCBM01_2_2015-06-01", text=body("a")),  # near duplicate
+                record(cnr="HCBM01_3_2014-01-01", text=body("b"), decision_date="2015-06-05"),  # date conflict
+                record(cnr="HCBM01_4_2015-06-01", text="Rule discharged."),  # lookup only
+            ]
+            report = self.build(tmp, rows)
+            saved = json.loads((tmp / "v2" / "o" / "build_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["stats"]["near_duplicate_share_of_reasoned"], 1 / 3)  # 1 / (2 kept + 1 dropped)
+            self.assertEqual(saved["stats"]["date_conflict_share_of_kept"], 1 / 3)  # 1 / (2 search + 1 lookup)
+            self.assertEqual(report["stats"]["date_conflict_share_of_kept"], 1 / 3)
+
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.script.print_summary(report)
+            text = buffer.getvalue()
+            self.assertIn("near-duplicate share of reasoned", text)
+            self.assertIn("0.3333 (33.33%)", text)
+            self.assertIn("date-conflict share of kept", text)
+
+    def test_summary_prints_n_a_when_a_rate_is_undefined(self):
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            report = self.build(tmp, [record(cnr="HCBM01_1_2015-06-01", text="   ")])
+            self.assertIsNone(report["stats"]["date_conflict_share_of_kept"])
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                self.script.print_summary(report)
+            self.assertEqual(buffer.getvalue().count("n/a"), 2)
+
+
 class TestSchemaChecks(unittest.TestCase):
     """The first run on the Supreme Court config must fail clearly, or work with the columns it has."""
 

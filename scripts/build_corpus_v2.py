@@ -402,6 +402,10 @@ def build(
     return report
 
 
+def _share_text(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"{value:.4f} ({value * 100:.2f}%)"
+
+
 def print_summary(report: Dict[str, Any]) -> None:
     stats = report["stats"]
     print("\nBuild summary")
@@ -413,6 +417,9 @@ def print_summary(report: Dict[str, Any]) -> None:
     print(f"  counts reconcile           {stats['identity_holds']}")
     print(f"  date conflicts (kept rows) {stats['date_conflicts']:>12,}")
     print(f"  repeat-cleaned records     {stats['repeat_cleaned_records']:>12,}")
+    print("  Rates to compare with docs/DATA_PROFILE_BOMBAY.md:")
+    print(f"    near-duplicate share of reasoned  {_share_text(stats['near_duplicate_share_of_reasoned'])}")
+    print(f"    date-conflict share of kept       {_share_text(stats['date_conflict_share_of_kept'])}")
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
