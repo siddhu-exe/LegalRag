@@ -73,6 +73,24 @@ class TestCaseType(unittest.TestCase):
         self.assertEqual((ref["code"], ref["number"], ref["year"]), ("CRWP", "12", "2015"))
         self.assertEqual(parse_case_reference("WP(L)/45/2019")["code"], "WP(L)")
 
+    def test_multi_word_code_at_the_start_is_kept_whole(self):
+        ref = parse_case_reference("CR. MISC./57199/2022 of A Vs B")
+        self.assertEqual(ref, {"code": "CRMISC", "number": "57199", "year": "2022"})
+        self.assertEqual(parse_case_reference("CR. MISC. APPLN./12/2019")["code"], "CRMISCAPPLN")
+
+    def test_single_codes_at_the_start_are_unchanged(self):
+        self.assertEqual(parse_case_reference("WP/1519/2000")["code"], "WP")
+        self.assertEqual(parse_case_reference("WP(L)/12/2010")["code"], "WP(L)")
+        self.assertEqual(parse_case_reference("APP/694/1994"), {"code": "APP", "number": "694", "year": "1994"})
+
+    def test_reference_in_the_middle_of_a_title_parses_as_before(self):
+        self.assertEqual(parse_case_reference("Order in WP/5/2001")["code"], "WP")
+        self.assertEqual(parse_case_reference("Ram v. WP/5/2001")["code"], "WP")
+        self.assertEqual(parse_case_reference("Ram Kumar Vs State of Maharashtra CRA/7/2011")["code"], "CRA")
+
+    def test_more_than_three_leading_tokens_is_not_one_code(self):
+        self.assertEqual(parse_case_reference("A B C D/9/2001")["code"], "D")
+
     def test_no_reference_returns_none(self):
         self.assertIsNone(parse_case_reference("Ram v. State of Maharashtra"))
         self.assertIsNone(parse_case_reference(""))
@@ -385,6 +403,13 @@ class TestBuilderRules(unittest.TestCase):
         neither = b.process(record(cnr="C3", title="Ram v. State", case_type=None), HC).row
         self.assertEqual((neither["case_type"], neither["case_type_source"]), (None, "none"))
         self.assertEqual(b.stats.case_type_source, {"title": 1, "dataset": 1, "none": 1})
+
+    def test_multi_word_code_flows_through_to_the_row_and_the_unmapped_list(self):
+        b = builder()
+        row = b.process(record(cnr="C9", title="CR. MISC./57199/2022 of A Vs B"), HC).row
+        self.assertEqual((row["case_type"], row["case_type_code"], row["case_type_name"]), ("CRMISC", "CRMISC", None))
+        self.assertEqual((row["case_number"], row["case_year"]), ("57199", "2022"))
+        self.assertEqual(b.stats.unmapped_case_codes["CRMISC"], 1)
 
     def test_unmapped_case_codes_are_listed(self):
         b = builder()

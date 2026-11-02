@@ -81,22 +81,34 @@ BOMBAY_CASE_TYPE_NAMES: Dict[str, str] = {
     "AO": "Appeal from Order",
 }
 
+_NUMBER_AND_YEAR = r"\s*/\s*(?P<number>\d{1,7})\s*/\s*(?P<year>(?:18|19|20)\d{2})(?!\d)"
+
+# A title that STARTS with the reference: a code of up to three space-separated tokens, such as
+# "CR. MISC./57199/2022". Tokens must be capital letters and dots (no lowercase), so a title like
+# "Order in WP/5/2001" or "Ram v. WP/5/2001" is not read as the code "ORDERINWP".
+_LEADING_CASE_REFERENCE = re.compile(
+    r"^\s*(?P<code>[A-Z][A-Z.&\-]*(?:\s+[A-Z][A-Z.&\-]*){0,2}(?:\s*\([A-Za-z]{1,6}\))?)"
+    + _NUMBER_AND_YEAR
+)
+
+# Otherwise the reference may appear anywhere in the title; the code is then one token.
 _CASE_REFERENCE = re.compile(
     r"(?<![A-Za-z0-9])"
-    r"(?P<code>[A-Za-z][A-Za-z.&\-]*(?:\s*\([A-Za-z]{1,6}\))?)"
-    r"\s*/\s*(?P<number>\d{1,7})\s*/\s*(?P<year>(?:18|19|20)\d{2})(?!\d)"
+    r"(?P<code>[A-Za-z][A-Za-z.&\-]*(?:\s*\([A-Za-z]{1,6}\))?)" + _NUMBER_AND_YEAR
 )
 
 
 def parse_case_reference(title: Optional[str]) -> Optional[Dict[str, str]]:
     """Reads a reference such as ``WP/1519/2000`` from a title.
 
-    Returns ``code`` (normalised, for example ``WP(L)``), ``number`` and ``year``, or None
-    when the title holds no such reference.
+    A reference at the start of the title keeps a multi-word code whole ("CR. MISC./57199/2022"
+    gives ``CRMISC``). A reference elsewhere in the title uses the single token before the first
+    slash. Returns ``code`` (uppercase letters and parentheses only, for example ``WP(L)``),
+    ``number`` and ``year``, or None when the title holds no such reference.
     """
     if not title or not isinstance(title, str):
         return None
-    match = _CASE_REFERENCE.search(title)
+    match = _LEADING_CASE_REFERENCE.match(title) or _CASE_REFERENCE.search(title)
     if match is None:
         return None
     code = re.sub(r"[^A-Z()]", "", match.group("code").upper())
