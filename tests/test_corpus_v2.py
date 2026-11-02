@@ -11,6 +11,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from legalrag.preprocessing.corpus_v2 import (
     BuildConfig,
@@ -597,6 +598,153 @@ class TestBuildScript(unittest.TestCase):
             self.assertEqual([p.name for p in by_glob], ["a.parquet", "b.parquet"])
             by_file = self.script.expand_inputs([str(tmp / "a.parquet"), str(tmp / "a.parquet")])
             self.assertEqual(len(by_file), 1)
+
+
+class TestSchemaChecks(unittest.TestCase):
+    """The first run on the Supreme Court config must fail clearly, or work with the columns it has."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import pyarrow  # noqa: F401
+        except ImportError:  # pragma: no cover
+            raise unittest.SkipTest("pyarrow is not installed")
+        cls.script = _load_script()
+
+    def write(self, path: Path, rows):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        pq.write_table(pa.Table.from_pylist(rows), path)
+        return path
+
+    def sc_rows(self):
+        # No bench, court_code, judge or case_type columns at all.
+        return [
+            {"cnr": "SC_1", "full_text": body("s1"), "title": "Ram v. State", "decision_date": "1990-01-01", "year": 1990},
+            {"cnr": "SC_2", "full_text": "Dismissed.", "title": "X v. Y", "decision_date": "", "year": 1991},
+        ]
+
+    def run_check(self, *argv):
+        import contextlib
+        import io
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            with self.assertRaises(SystemExit) as ctx:
+                self.script.main(list(argv))
+        return ctx.exception.code, buffer.getvalue()
+
+    def test_supreme_court_file_without_optional_columns_still_builds(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            sc = self.write(tmp / "sc.parquet", self.sc_rows())
+            out = tmp / "v2" / "out"
+            report = self.script.build(
+                {"high_courts": [], "supreme_court": [sc]}, out, BuildConfig(min_chars=200, today=TODAY)
+            )
+            stats = report["stats"]
+            self.assertEqual((stats["scanned"], stats["kept_search_index"], stats["kept_lookup_only"]), (2, 1, 1))
+            self.assertTrue(stats["identity_holds"])
+            rows = pq.read_table(out / "search_corpus.parquet").to_pylist() + pq.read_table(out / "lookup_only.parquet").to_pylist()
+            self.assertEqual(len(rows), 2)
+            for row in rows:
+                self.assertEqual(row["bench_name"], "Supreme Court of India")
+                self.assertEqual((row["court_code"], row["court_name"]), ("SC", "Supreme Court of India"))
+                self.assertIsNone(row["bench"])
+                self.assertIsNone(row["judge"])
+                self.assertIsNone(row["case_type_name"])
+            self.assertEqual({r["case_type_source"] for r in rows}, {"none"})
+            self.assertEqual(stats["unknown_bench"], {})
+
+    def test_file_without_cnr_fails_clearly_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            rows = [{k: v for k, v in r.items() if k != "cnr"} for r in self.sc_rows()]
+            sc = self.write(tmp / "sc.parquet", rows)
+            out = tmp / "v2" / "out"
+            with self.assertRaises(SystemExit) as ctx:
+                self.script.build({"high_courts": [], "supreme_court": [sc]}, out, BuildConfig(min_chars=200, today=TODAY))
+            message = str(ctx.exception)
+            self.assertIn("supreme_court", message)
+            self.assertIn("'cnr'", message)
+            self.assertIn("sc.parquet", message)
+            self.assertIn("Columns found: full_text, title, decision_date, year", message)
+            self.assertFalse(out.exists())  # no empty outputs left behind to block the next run
+
+    def test_high_courts_file_without_court_code_fails_clearly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            hc = self.write(tmp / "hc.parquet", [{"cnr": "HCBM01_1_2015-01-01", "full_text": body("a")}])
+            with self.assertRaises(SystemExit) as ctx:
+                self.script.build({"high_courts": [hc], "supreme_court": []}, tmp / "v2" / "o", BuildConfig(min_chars=200, today=TODAY))
+            self.assertIn("'court_code'", str(ctx.exception))
+            self.assertIn("Columns found: cnr, full_text", str(ctx.exception))
+
+    def test_reader_message_lists_the_columns_it_found(self):
+        # The reader keeps its own check as a second line of defence.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            hc = self.write(tmp / "hc.parquet", [{"cnr": "HCBM01_1_2015-01-01", "full_text": body("a")}])
+            builder_ = CorpusBuilder(BuildConfig(min_chars=200, today=TODAY))
+            with self.assertRaises(SystemExit) as ctx:
+                list(self.script.iter_source_records([hc], HC, builder_, None))
+            self.assertIn("Columns found: cnr, full_text", str(ctx.exception))
+
+    def test_check_schema_reports_files_rows_columns_and_what_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            sc = self.write(tmp / "sc.parquet", self.sc_rows())
+            code, text = self.run_check("--supreme-court", str(sc), "--check-schema")
+            self.assertEqual(code, 0)
+            self.assertIn("[supreme_court] 1 file(s), 2 rows", text)
+            self.assertIn(str(sc), text)
+            self.assertIn("cnr: string", text)
+            self.assertIn("year: int64", text)
+            missing_line = next(l for l in text.splitlines() if "expected columns not present" in l)
+            for column in ("court_code", "bench", "judge", "case_type"):
+                self.assertIn(column, missing_line)
+            self.assertNotIn("cnr", missing_line)
+            self.assertIn("required 'cnr': present", text)
+            self.assertIn("required 'full_text': present", text)
+            self.assertNotIn("PROBLEM", text)
+
+    def test_check_schema_flags_missing_required_columns_with_a_failing_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            hc = self.write(tmp / "hc.parquet", [{"cnr": "HCBM01_1_2015-01-01", "full_text": body("a")}])
+            sc = self.write(tmp / "sc.parquet", [{"full_text": "x"}])
+            code, text = self.run_check("--high-courts", str(hc), "--supreme-court", str(sc), "--check-schema")
+            self.assertEqual(code, 1)
+            self.assertIn("required 'court_code': MISSING", text)
+            self.assertIn("required 'cnr': MISSING", text)
+            self.assertIn("PROBLEM: high_courts: required column 'court_code'", text)
+
+    def test_check_schema_notes_columns_that_differ_between_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            first = self.write(tmp / "a.parquet", self.sc_rows())
+            second = self.write(tmp / "b.parquet", [{k: v for k, v in r.items() if k != "title"} for r in self.sc_rows()])
+            code, text = self.run_check("--supreme-court", str(first), str(second), "--check-schema")
+            self.assertEqual(code, 0)
+            self.assertIn("2 file(s), 4 rows", text)
+            self.assertIn("columns missing from some files: title", text)
+
+    def test_check_schema_writes_nothing_and_reads_no_text(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            sc = self.write(tmp / "sc.parquet", self.sc_rows())
+            before = sorted(p.name for p in tmp.rglob("*"))
+            with mock.patch.object(pq, "read_table", side_effect=AssertionError("text was read")), \
+                    mock.patch.object(pq.ParquetFile, "read", side_effect=AssertionError("text was read")), \
+                    mock.patch.object(pq.ParquetFile, "iter_batches", side_effect=AssertionError("text was read")):
+                code, _ = self.run_check("--supreme-court", str(sc), "--check-schema", "--out-dir", str(tmp / "v2" / "never"))
+            self.assertEqual(code, 0)
+            self.assertEqual(sorted(p.name for p in tmp.rglob("*")), before)
 
 
 if __name__ == "__main__":

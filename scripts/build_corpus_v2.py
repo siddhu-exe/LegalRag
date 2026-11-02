@@ -144,6 +144,83 @@ def arrow_schema(fields: Sequence[Any]) -> Any:
     return pa.schema([(name, types[kind]) for name, kind in fields])
 
 
+REQUIRED_COLUMNS = {
+    "high_courts": ("cnr", "full_text", "court_code"),
+    "supreme_court": ("cnr", "full_text"),
+}
+
+
+def inspect_files(files: Sequence[Path]) -> Dict[str, Any]:
+    """Reads parquet metadata only (no text): rows and column names with types, per file."""
+    import pyarrow.parquet as pq
+
+    per_file = []
+    for path in files:
+        parquet = pq.ParquetFile(str(path))
+        per_file.append(
+            {
+                "path": str(path),
+                "rows": parquet.metadata.num_rows,
+                "columns": {field.name: str(field.type) for field in parquet.schema_arrow},
+            }
+        )
+    in_every_file = set.intersection(*(set(f["columns"]) for f in per_file)) if per_file else set()
+    in_any_file = set().union(*(set(f["columns"]) for f in per_file)) if per_file else set()
+    first = per_file[0]["columns"] if per_file else {}
+    return {
+        "files": per_file,
+        "rows": sum(f["rows"] for f in per_file),
+        "columns": first,
+        "columns_not_in_every_file": sorted(in_any_file - in_every_file),
+        "missing_read_columns": [c for c in READ_COLUMNS if c not in in_every_file],
+        "_in_every_file": in_every_file,
+    }
+
+
+def schema_problems(config: str, inspection: Dict[str, Any]) -> List[str]:
+    """Plain-language problems that stop a build: required columns absent from any file."""
+    problems = []
+    for column in REQUIRED_COLUMNS.get(config, ("cnr", "full_text")):
+        if column in inspection["_in_every_file"]:
+            continue
+        lacking = [Path(f["path"]).name for f in inspection["files"] if column not in f["columns"]]
+        problems.append(
+            f"{config}: required column '{column}' is missing from {', '.join(lacking)}. "
+            f"Columns found: {', '.join(inspection['columns']) or '(none)'}."
+        )
+    return problems
+
+
+def format_schema_report(config: str, inspection: Dict[str, Any]) -> str:
+    lines = [f"[{config}] {len(inspection['files'])} file(s), {inspection['rows']:,} rows"]
+    lines += [f"  file: {f['path']} ({f['rows']:,} rows)" for f in inspection["files"]]
+    lines.append("  columns (name: type):")
+    lines += [f"    {name}: {kind}" for name, kind in inspection["columns"].items()]
+    if inspection["columns_not_in_every_file"]:
+        lines.append(f"  columns missing from some files: {', '.join(inspection['columns_not_in_every_file'])}")
+    missing = inspection["missing_read_columns"]
+    lines.append(
+        "  expected columns not present (they come out empty): " + (", ".join(missing) if missing else "none")
+    )
+    for column in REQUIRED_COLUMNS.get(config, ("cnr", "full_text")):
+        lines.append(f"  required '{column}': {'present' if column in inspection['_in_every_file'] else 'MISSING'}")
+    return "\n".join(lines)
+
+
+def check_schema(sources: Dict[str, List[Path]]) -> bool:
+    """Prints the schema report for each config. Writes nothing. Returns False if anything required is missing."""
+    ok = True
+    for config, files in sources.items():
+        if not files:
+            continue
+        inspection = inspect_files(files)
+        print(format_schema_report(config, inspection))
+        for problem in schema_problems(config, inspection):
+            ok = False
+            print(f"  PROBLEM: {problem}")
+    return ok
+
+
 def iter_source_records(
     files: Sequence[Path], spec: SourceSpec, builder: CorpusBuilder, max_rows: Optional[int]
 ) -> Iterator[Dict[str, Any]]:
@@ -153,12 +230,18 @@ def iter_source_records(
     dataset = ds.dataset([str(path) for path in files], format="parquet")
     columns = [name for name in READ_COLUMNS if name in dataset.schema.names]
     if "cnr" not in columns or "full_text" not in columns:
-        raise SystemExit(f"{spec.config}: input files need at least 'cnr' and 'full_text' columns.")
+        raise SystemExit(
+            f"{spec.config}: input files need 'cnr' and 'full_text' columns. "
+            f"Columns found: {', '.join(dataset.schema.names)}."
+        )
 
     flt = None
     if spec.court_code is not None:
         if "court_code" not in dataset.schema.names:
-            raise SystemExit(f"{spec.config}: no 'court_code' column to select {spec.court_code}.")
+            raise SystemExit(
+                f"{spec.config}: no 'court_code' column to select {spec.court_code}. "
+                f"Columns found: {', '.join(dataset.schema.names)}."
+            )
         flt = ds.field("court_code") == spec.court_code
     total = dataset.count_rows()
     selected = dataset.count_rows(filter=flt) if flt is not None else total
@@ -198,6 +281,13 @@ def build(
 ) -> Dict[str, Any]:
     """Runs the build and returns the report that is also written to build_report.json."""
     assert_v2_output_dir(out_dir)
+    # Check the input columns first, from metadata only, so a schema problem leaves no partial outputs.
+    problems = []
+    for config_name, files in sources.items():
+        if files:
+            problems += schema_problems(config_name, inspect_files(files))
+    if problems:
+        raise SystemExit("Cannot build:\n  " + "\n  ".join(problems))
     out_dir.mkdir(parents=True, exist_ok=True)
     existing = [name for name in OUTPUT_FILES if (out_dir / name).exists()]
     if existing and not overwrite:
@@ -330,6 +420,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--high-courts", nargs="*", default=[], help="parquet files, folders or globs")
     parser.add_argument("--supreme-court", nargs="*", default=[], help="parquet files, folders or globs")
     parser.add_argument("--from-hub", action="store_true", help="download the parquet files from the Hub")
+    parser.add_argument(
+        "--check-schema",
+        action="store_true",
+        help="print files, row counts, columns and types per config (metadata only) and exit; "
+        "writes nothing. With --from-hub the files are downloaded first.",
+    )
     parser.add_argument("--hub-repo", default=HUB_REPO)
     parser.add_argument("--splits", nargs="+", default=list(HUB_SPLITS))
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
@@ -364,6 +460,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 sources[config_name] = download_from_hub(config_name, args.splits, args.hub_repo)
     if not any(sources.values()):
         raise SystemExit("No input files. Pass --high-courts/--supreme-court paths or use --from-hub.")
+    if args.check_schema:
+        raise SystemExit(0 if check_schema(sources) else 1)
 
     config = BuildConfig(
         min_chars=args.min_chars,
