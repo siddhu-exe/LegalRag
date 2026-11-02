@@ -54,7 +54,10 @@ experiment, including failures, in `docs/EXPERIMENT_LOG.md`.
       `DenseRetriever.search()`, and validated `load_production_pipeline()` /
       `check_readiness()` / `POST /query` locally
 - [x] Bombay HC data profile (`scripts/profile_bombay_hc.py`) and v2 plan written
-- [ ] v2 plan tasks C1–C11 and P1–P11: none started
+- [x] v2 task P1: v1 RAM baseline measured (`scripts/measure_ram.py`, peak 9.30 GiB;
+      BM25 4.04 GiB and about 80% of retrieval and rerank time). v1 holds only 1,037
+      Bombay judgments.
+- [ ] v2 tasks C1–C11 and P2–P11: cloud Batch 1 (C1–C3) was handed to a cloud session, to arrive on branch `cloud/batch-1`
 
 ## Approved v2 changes (decided 2026-11-02)
 

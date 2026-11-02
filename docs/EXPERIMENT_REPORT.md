@@ -39,7 +39,7 @@ The 100,000 judgments reflect diverse High Court benches across India:
 - Chhattisgarh (`22_18`): 6,961
 - Tripura (`16_20`): 3,289
 - Manipur (`14_25`): 2,268
-- Other state High Courts. The Bombay (`27_1`) count is not recorded here.
+- Other state High Courts, including Bombay (`27_1`) with 1,037 judgments.
 
 ---
 

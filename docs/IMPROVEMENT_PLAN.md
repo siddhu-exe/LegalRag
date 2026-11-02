@@ -10,8 +10,9 @@ Plain-language version: [WHAT_TO_FIX.md](WHAT_TO_FIX.md). Corpus numbers:
 [DATA_PROFILE_BOMBAY.md](DATA_PROFILE_BOMBAY.md). Experiment history:
 [EXPERIMENT_LOG.md](EXPERIMENT_LOG.md).
 
-Status: no task below has been started unless it is marked done. All RAM, chunk and cost
-figures marked "estimate" must be replaced with measurements.
+Status: P1 is done (peak 9.30 GiB, with BM25 the largest part at 4.04 GiB; see
+`results/ram_baseline.json`). No other task is done. All RAM, chunk and cost figures marked
+"estimate" must be replaced with measurements.
 
 ---
 

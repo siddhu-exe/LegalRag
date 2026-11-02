@@ -94,8 +94,10 @@ The v1 report labelled court codes incorrectly. Checking codes against CNR prefi
 | `19_16` | Calcutta | WBCH | Calcutta (correct) |
 | `24_17` | Gujarat | GJHC | Gujarat (correct) |
 
-So the "19,679 Bombay judgments" in the v1 report were Patna judgments. The real number of Bombay
-judgments in v1 is unknown until `legal_chunks.parquet` is counted for `27_1` (plan task P1).
+So the "19,679 Bombay judgments" in the v1 report were Patna judgments. Counting
+`legal_chunks.parquet` by CNR prefix shows v1 holds only **1,037 Bombay judgments** (6,030 chunks),
+about 1% of v1 and under 0.1% of all Bombay records. Delhi has 63, Karnataka 7 and Allahabad 2. v1's
+search quality therefore says little about Bombay law. See `results/ram_baseline.json`.
 
 ## Sizing (estimates)
 

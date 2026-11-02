@@ -1,0 +1,126 @@
+{
+  "machine": {
+    "python": "3.12.3",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "total_ram_gib": 31.4,
+    "logical_cpus": 20
+  },
+  "note": "added_gib depends on load order; generation runs remotely and is excluded.",
+  "peak_gib": 9.301,
+  "steps": [
+    {
+      "step": "import pandas",
+      "seconds": 0.27,
+      "added_gib": 0.059,
+      "rss_gib": 0.079
+    },
+    {
+      "step": "import torch, faiss, retrievers",
+      "seconds": 4.37,
+      "added_gib": 0.373,
+      "rss_gib": 0.452
+    },
+    {
+      "step": "chunk text (pandas)",
+      "seconds": 0.58,
+      "added_gib": 1.464,
+      "rss_gib": 1.917
+    },
+    {
+      "step": "chunk ID list",
+      "seconds": 0.03,
+      "added_gib": 0.044,
+      "rss_gib": 1.961
+    },
+    {
+      "step": "BM25 index",
+      "seconds": 5.32,
+      "added_gib": 4.043,
+      "rss_gib": 6.004
+    },
+    {
+      "step": "FAISS flat index",
+      "seconds": 0.72,
+      "added_gib": 1.54,
+      "rss_gib": 7.544
+    },
+    {
+      "step": "embedding model",
+      "seconds": 42.18,
+      "added_gib": 0.455,
+      "rss_gib": 7.999
+    },
+    {
+      "step": "reranker model",
+      "seconds": 20.74,
+      "added_gib": 0.093,
+      "rss_gib": 8.092
+    },
+    {
+      "step": "6 queries",
+      "seconds": 20.6,
+      "added_gib": 1.044,
+      "rss_gib": 9.136
+    }
+  ],
+  "latency_ms": {
+    "bm25": {
+      "mean": 2739.0,
+      "median": 2848.2,
+      "worst": 3206.1
+    },
+    "dense": {
+      "mean": 91.6,
+      "median": 87.4,
+      "worst": 123.9
+    },
+    "rrf": {
+      "mean": 0.1,
+      "median": 0.1,
+      "worst": 0.1
+    },
+    "rerank": {
+      "mean": 602.1,
+      "median": 610.8,
+      "worst": 749.6
+    },
+    "total": {
+      "mean": 3432.8,
+      "median": 3532.9,
+      "worst": 3999.3
+    }
+  },
+  "corpus": {
+    "chunks": 538079,
+    "judgments": 100000,
+    "bombay_chunks": 6030,
+    "bombay_judgments": 1037,
+    "judgments_by_cnr_prefix": {
+      "BRHC": 19679,
+      "CGHC": 6961,
+      "DLHC": 63,
+      "GAHC": 21498,
+      "GJHC": 8555,
+      "HBHC": 663,
+      "HCBM": 1037,
+      "HCMA": 78,
+      "HCMD": 2,
+      "HPHC": 33,
+      "JHHC": 1014,
+      "JKHC": 10471,
+      "KAHC": 7,
+      "KLHC": 343,
+      "MLHC": 1738,
+      "MNHC": 2268,
+      "MPHC": 1542,
+      "ODHC": 85,
+      "PHHC": 385,
+      "RJHC": 66,
+      "SKHC": 287,
+      "TRHC": 3289,
+      "UKHC": 162,
+      "UPHC": 2,
+      "WBCH": 19772
+    }
+  }
+}

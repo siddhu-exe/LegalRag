@@ -19,6 +19,28 @@ What I learned:
 
 ## v2 experiments
 
+### v1 RAM and speed baseline, plan task P1 (2 November 2026)
+- **Question:** Where do RAM and time go in the running system?
+- **Data and metric:** `scripts/measure_ram.py` on the real artifacts, with 6 sample queries on a
+  20-thread PC. Generation is excluded because it runs remotely. Memory added at each step depends on
+  load order. Output: `results/ram_baseline.json`.
+- **Result:** Peak 9.30 GiB. BM25 4.04 GiB, FAISS 1.54, chunk text 1.46, query working memory 1.04,
+  embedding model 0.46, PyTorch and FAISS imports 0.37, reranker 0.09. BM25 takes about 2.74 s of the
+  3.43 s mean retrieval and rerank time, which is about 80%.
+- **Decision:** Replace BM25 first, because it is the largest part of both RAM and time.
+- **What I learned:** The models I expected to matter are small. Removing PyTorch still helps, but
+  BM25 and data storage matter most. Six queries are too few for firm latency figures, and a 2-vCPU
+  server will be slower than this PC. The earlier 10.5 GB figure came from a separate measurement.
+
+### Bombay coverage in v1 (2 November 2026)
+- **Question:** How much Bombay law does v1 contain?
+- **Data and metric:** Counted judgments in `legal_chunks.parquet` by CNR prefix.
+- **Result:** 1,037 Bombay judgments out of 100,000, about 1%. The sample is heavily skewed: Gauhati
+  has 21,498, Calcutta 19,772 and Patna 19,679, while Delhi has 63 and Allahabad 2.
+- **Decision:** Adopted the need for a new corpus. v1 cannot support a Bombay pilot.
+- **What I learned:** A shuffle over streamed data with a limited buffer is not a representative
+  sample. Check the distribution after collecting data.
+
 ### Bombay HC corpus profile (2 November 2026)
 - **Question:** Is all of the Bombay HC data practical to search?
 - **Data and metric:** All 1,263,189 records, counted with `scripts/profile_bombay_hc.py`.
