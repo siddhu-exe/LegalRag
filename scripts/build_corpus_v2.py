@@ -1,0 +1,397 @@
+"""
+Builds the v2 corpus (plan task C1): Bombay High Court plus Supreme Court.
+
+Reads the dataset's parquet files, applies the rules in ``legalrag.preprocessing.corpus_v2``
+and writes, under ``artifacts/v2/corpus/`` by default:
+
+    search_corpus.parquet     reasoned judgments (clean_chars >= --min-chars), with text
+    lookup_only.parquet       shorter records, kept for case lookup, with text
+    duplicate_links.parquet   removed near-duplicate CNR -> kept CNR
+    build_report.json         every count, including dropped records by reason, and all settings
+    date_disagreements_sample.csv   random sample for choosing the date rule (plan task P3)
+    short_orders_sample.csv         random sample for checking the length cut (plan task P3)
+
+It never reads or writes v1 artifacts, and refuses an output directory without a ``v2`` part.
+Runs on your PC: it reads about 6 GB of text and keeps only CNRs and fingerprints in memory.
+
+Examples:
+    # Local parquet files (any number, in any folder), already downloaded:
+    python scripts/build_corpus_v2.py \\
+        --high-courts data/hf/high_courts/*.parquet \\
+        --supreme-court data/hf/supreme_court/*.parquet
+
+    # Download the parquet files from the Hugging Face Hub first (large):
+    python scripts/build_corpus_v2.py --from-hub
+
+    # Quick check on the first 20,000 selected records of each config:
+    python scripts/build_corpus_v2.py --from-hub --max-rows 20000 --out-dir artifacts/v2/corpus_smoke
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as dt
+import glob
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Sequence
+
+try:
+    from legalrag.preprocessing.corpus_v2 import (
+        BuildConfig,
+        CorpusBuilder,
+        OUTPUT_FIELDS,
+        ReservoirSampler,
+        SourceSpec,
+        default_sources,
+    )
+except ImportError:  # running from a checkout without `pip install -e .`
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    from legalrag.preprocessing.corpus_v2 import (  # noqa: E402
+        BuildConfig,
+        CorpusBuilder,
+        OUTPUT_FIELDS,
+        ReservoirSampler,
+        SourceSpec,
+        default_sources,
+    )
+
+DEFAULT_OUT_DIR = Path("artifacts/v2/corpus")
+HUB_REPO = "overthelex/indian-court-decisions"
+HUB_SPLITS = ("train", "validation", "test")
+READ_COLUMNS = (
+    "cnr", "court_code", "bench", "year", "full_text", "title", "judge", "petitioner",
+    "respondent", "decision_date", "disposal_nature_normalized", "case_type",
+)
+OUTPUT_FILES = (
+    "search_corpus.parquet", "lookup_only.parquet", "duplicate_links.parquet",
+    "build_report.json", "date_disagreements_sample.csv", "short_orders_sample.csv",
+)
+SNIPPET_CHARS = 400
+
+
+def assert_v2_output_dir(path: Path) -> None:
+    """v2 builds must live under a ``v2`` directory so v1 artifacts cannot be overwritten."""
+    if "v2" not in path.resolve().parts and "v2" not in path.parts:
+        raise SystemExit(
+            f"Refusing to write to {path}: the output directory must contain a 'v2' part "
+            "(for example artifacts/v2/corpus). v1 artifacts are frozen."
+        )
+
+
+def expand_inputs(patterns: Sequence[str]) -> List[Path]:
+    """Expands files, directories and glob patterns into a sorted list of parquet files."""
+    found: List[Path] = []
+    for pattern in patterns:
+        path = Path(pattern)
+        if path.is_dir():
+            found.extend(sorted(path.rglob("*.parquet")))
+        elif path.is_file():
+            found.append(path)
+        else:
+            found.extend(Path(p) for p in sorted(glob.glob(pattern, recursive=True)))
+    unique = sorted(dict.fromkeys(found))
+    return unique
+
+
+def download_from_hub(config: str, splits: Sequence[str], repo: str) -> List[Path]:
+    """Downloads ``<config>/<split>.parquet`` files (network; run on your PC only)."""
+    from huggingface_hub import hf_hub_download
+
+    return [
+        Path(hf_hub_download(repo_id=repo, filename=f"{config}/{split}.parquet", repo_type="dataset"))
+        for split in splits
+    ]
+
+
+class BufferedParquetWriter:
+    """Writes rows to one parquet file in reasonably sized row groups."""
+
+    def __init__(self, path: Path, schema: Any, flush_rows: int = 10_000):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        self._pa = pa
+        self._schema = schema
+        self._flush_rows = flush_rows
+        self._rows: List[Dict[str, Any]] = []
+        self._writer = pq.ParquetWriter(str(path), schema, compression="zstd")
+        self.count = 0
+
+    def add(self, row: Dict[str, Any]) -> None:
+        self._rows.append(row)
+        if len(self._rows) >= self._flush_rows:
+            self.flush()
+
+    def flush(self) -> None:
+        if self._rows:
+            table = self._pa.Table.from_pylist(self._rows, schema=self._schema)
+            self._writer.write_table(table)
+            self.count += len(self._rows)
+            self._rows = []
+
+    def close(self) -> None:
+        self.flush()
+        self._writer.close()
+
+
+def arrow_schema(fields: Sequence[Any]) -> Any:
+    import pyarrow as pa
+
+    types = {"string": pa.string(), "bool": pa.bool_(), "int32": pa.int32(), "int64": pa.int64()}
+    return pa.schema([(name, types[kind]) for name, kind in fields])
+
+
+def iter_source_records(
+    files: Sequence[Path], spec: SourceSpec, builder: CorpusBuilder, max_rows: Optional[int]
+) -> Iterator[Dict[str, Any]]:
+    """Streams selected records from parquet files. The court filter runs inside the reader."""
+    import pyarrow.dataset as ds
+
+    dataset = ds.dataset([str(path) for path in files], format="parquet")
+    columns = [name for name in READ_COLUMNS if name in dataset.schema.names]
+    if "cnr" not in columns or "full_text" not in columns:
+        raise SystemExit(f"{spec.config}: input files need at least 'cnr' and 'full_text' columns.")
+
+    flt = None
+    if spec.court_code is not None:
+        if "court_code" not in dataset.schema.names:
+            raise SystemExit(f"{spec.config}: no 'court_code' column to select {spec.court_code}.")
+        flt = ds.field("court_code") == spec.court_code
+    total = dataset.count_rows()
+    selected = dataset.count_rows(filter=flt) if flt is not None else total
+    builder.note_prefiltered(spec.config, total - selected)
+
+    yielded = 0
+    for batch in dataset.scanner(columns=columns, filter=flt, batch_size=2048).to_batches():
+        for record in batch.to_pylist():
+            if max_rows is not None and yielded >= max_rows:
+                return  # rows never read are not counted as scanned; the report flags the cap
+            yielded += 1
+            yield record
+
+
+def snippet(text: str, limit: int = SNIPPET_CHARS) -> str:
+    return " ".join(text[:limit].split())
+
+
+def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(columns))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def build(
+    sources: Dict[str, List[Path]],
+    out_dir: Path,
+    config: BuildConfig,
+    seed: int = 42,
+    date_sample_size: int = 200,
+    short_sample_size: int = 100,
+    max_rows: Optional[int] = None,
+    overwrite: bool = False,
+    court_code: str = "27_1",
+    command: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Runs the build and returns the report that is also written to build_report.json."""
+    assert_v2_output_dir(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    existing = [name for name in OUTPUT_FILES if (out_dir / name).exists()]
+    if existing and not overwrite:
+        raise SystemExit(
+            f"{out_dir} already holds {', '.join(existing)}. Use --overwrite or a new --out-dir."
+        )
+
+    specs = default_sources(court_code)
+    builder = CorpusBuilder(config)
+    schema = arrow_schema(OUTPUT_FIELDS)
+    link_schema = arrow_schema([("duplicate_cnr", "string"), ("kept_cnr", "string"), ("source_config", "string")])
+    search_writer = BufferedParquetWriter(out_dir / "search_corpus.parquet", schema)
+    lookup_writer = BufferedParquetWriter(out_dir / "lookup_only.parquet", schema, flush_rows=50_000)
+    link_writer = BufferedParquetWriter(out_dir / "duplicate_links.parquet", link_schema, flush_rows=50_000)
+    date_sampler = ReservoirSampler(date_sample_size, seed)
+    short_sampler = ReservoirSampler(short_sample_size, seed)
+
+    input_files: Dict[str, List[str]] = {}
+    try:
+        for config_name, files in sources.items():
+            if not files:
+                continue
+            spec = specs[config_name]
+            input_files[config_name] = [str(path) for path in files]
+            print(f"[{config_name}] reading {len(files)} file(s)")
+            for record in iter_source_records(files, spec, builder, max_rows):
+                result = builder.process(record, spec)
+                if result.route == "dropped":
+                    if result.drop_reason == "near_duplicate":
+                        link_writer.add(
+                            {
+                                "duplicate_cnr": result.cnr,
+                                "kept_cnr": result.duplicate_of,
+                                "source_config": config_name,
+                            }
+                        )
+                    continue
+                row = result.row
+                assert row is not None
+                (search_writer if result.route == "search" else lookup_writer).add(row)
+                if row["date_conflict"]:
+                    date_sampler.add(
+                        {
+                            "cnr": row["cnr"],
+                            "bench": row["bench"],
+                            "decision_date": row["decision_date_raw"],
+                            "cnr_date": row["cnr_date_raw"],
+                            "year_conflict": row["year_conflict"],
+                            "text_start": snippet(row["text"]),
+                        }
+                    )
+                if result.route == "lookup_only":
+                    short_sampler.add(
+                        {
+                            "cnr": row["cnr"],
+                            "bench": row["bench"],
+                            "title": row["title"],
+                            "clean_chars": row["clean_chars"],
+                            "text": row["text"],
+                            "your_label": "",  # filled in by the owner during plan task P3
+                        }
+                    )
+    finally:
+        search_writer.close()
+        lookup_writer.close()
+        link_writer.close()
+
+    write_csv(
+        out_dir / "date_disagreements_sample.csv",
+        date_sampler.items,
+        ["cnr", "bench", "decision_date", "cnr_date", "year_conflict", "text_start"],
+    )
+    write_csv(
+        out_dir / "short_orders_sample.csv",
+        short_sampler.items,
+        ["cnr", "bench", "title", "clean_chars", "text", "your_label"],
+    )
+
+    settings = {
+        key: (value.isoformat() if isinstance(value, dt.date) else value)
+        for key, value in vars(config).items()
+    }
+    report = {
+        "built_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "command": list(command) if command else None,
+        "settings": settings,
+        "bombay_court_code": court_code,
+        "max_rows_per_config": max_rows,
+        "partial_build": max_rows is not None,
+        "input_files": input_files,
+        "outputs": {
+            "search_corpus_rows": search_writer.count,
+            "lookup_only_rows": lookup_writer.count,
+            "duplicate_links_rows": link_writer.count,
+        },
+        "samples": {
+            "date_disagreements_seen": date_sampler.seen,
+            "date_disagreements_written": len(date_sampler.items),
+            "short_orders_seen": short_sampler.seen,
+            "short_orders_written": len(short_sampler.items),
+            "seed": seed,
+        },
+        "stats": builder.stats.to_dict(),
+        "notes": [
+            "bench names for newas and newos are inferred, not confirmed (docs/DATA_PROFILE_BOMBAY.md).",
+            "Near duplicates are removed from the search corpus only; lookup-only records are never "
+            "de-duplicated because identical short orders in different cases are still different cases.",
+            "Drop reasons are exclusive: each scanned record is counted once.",
+        ],
+    }
+    (out_dir / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report
+
+
+def print_summary(report: Dict[str, Any]) -> None:
+    stats = report["stats"]
+    print("\nBuild summary")
+    print(f"  scanned records            {stats['scanned']:>12,}")
+    for reason, count in stats["dropped_by_reason"].items():
+        print(f"  dropped: {reason:<19}{count:>12,}")
+    print(f"  kept: search index         {stats['kept_search_index']:>12,}")
+    print(f"  kept: lookup only          {stats['kept_lookup_only']:>12,}")
+    print(f"  counts reconcile           {stats['identity_holds']}")
+    print(f"  date conflicts (kept rows) {stats['date_conflicts']:>12,}")
+    print(f"  repeat-cleaned records     {stats['repeat_cleaned_records']:>12,}")
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--high-courts", nargs="*", default=[], help="parquet files, folders or globs")
+    parser.add_argument("--supreme-court", nargs="*", default=[], help="parquet files, folders or globs")
+    parser.add_argument("--from-hub", action="store_true", help="download the parquet files from the Hub")
+    parser.add_argument("--hub-repo", default=HUB_REPO)
+    parser.add_argument("--splits", nargs="+", default=list(HUB_SPLITS))
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--court-code", default="27_1", help="High Court code to select (Bombay = 27_1)")
+    parser.add_argument("--min-chars", type=int, default=5000, help="cut for the search index")
+    parser.add_argument("--date-rule", choices=("prefer_decision", "prefer_cnr", "agree_only"), default="prefer_decision")
+    parser.add_argument("--require-date", action="store_true", help="drop reasoned records with no valid date")
+    parser.add_argument("--dedup-mode", choices=("prefix", "exact", "off"), default="prefix")
+    parser.add_argument("--dedup-prefix-chars", type=int, default=2000)
+    parser.add_argument("--no-repeat-clean", action="store_true")
+    parser.add_argument("--repeat-head-chars", type=int, default=3000)
+    parser.add_argument("--repeat-min-words", type=int, default=3)
+    parser.add_argument("--repeat-max-words", type=int, default=60)
+    parser.add_argument("--today", help="YYYY-MM-DD used to reject future dates (default: today)")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--date-sample-size", type=int, default=200)
+    parser.add_argument("--short-sample-size", type=int, default=100)
+    parser.add_argument("--max-rows", type=int, default=None, help="cap on selected rows per config (smoke test)")
+    return parser.parse_args(argv)
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    args = parse_args(argv)
+    sources: Dict[str, List[Path]] = {
+        "high_courts": expand_inputs(args.high_courts),
+        "supreme_court": expand_inputs(args.supreme_court),
+    }
+    if args.from_hub:
+        for config_name in sources:
+            if not sources[config_name]:
+                sources[config_name] = download_from_hub(config_name, args.splits, args.hub_repo)
+    if not any(sources.values()):
+        raise SystemExit("No input files. Pass --high-courts/--supreme-court paths or use --from-hub.")
+
+    config = BuildConfig(
+        min_chars=args.min_chars,
+        date_rule=args.date_rule,
+        require_date=args.require_date,
+        dedup_mode=args.dedup_mode,
+        dedup_prefix_chars=args.dedup_prefix_chars,
+        clean_repeats=not args.no_repeat_clean,
+        repeat_head_chars=args.repeat_head_chars,
+        repeat_min_words=args.repeat_min_words,
+        repeat_max_words=args.repeat_max_words,
+        today=dt.date.fromisoformat(args.today) if args.today else None,
+    )
+    report = build(
+        sources=sources,
+        out_dir=args.out_dir,
+        config=config,
+        seed=args.seed,
+        date_sample_size=args.date_sample_size,
+        short_sample_size=args.short_sample_size,
+        max_rows=args.max_rows,
+        overwrite=args.overwrite,
+        court_code=args.court_code,
+        command=sys.argv,
+    )
+    print_summary(report)
+    print(f"\nWrote {args.out_dir}/build_report.json")
+
+
+if __name__ == "__main__":
+    main()
