@@ -105,7 +105,11 @@ def retrieve_all_systems(pipeline: Any, lookup: ChunkLookup, question: str, dept
     candidates = [(cid, meta[cid].get("text", "")) for cid in fused_ids if cid in meta]
     reranked = pipeline.reranker.rerank(query=question, candidates=candidates, top_k=depth) if candidates else []
     timings["rerank_ms"] = (time.perf_counter() - t0) * 1000.0
-    rerank_ids = [cid for cid, _ in reranked] or fused_ids
+    if fused_ids and not reranked:
+        # Falling back to the fused order here would make hybrid_rerank equal hybrid_rrf and hide the
+        # fault as "no difference". Raise so run_retrieval records a system error for this question.
+        raise RuntimeError("reranker returned no results")
+    rerank_ids = [cid for cid, _ in reranked]
 
     ranked = {"bm25": bm25_ids, "dense": dense_ids, "hybrid_rrf": fused_ids, "hybrid_rerank": rerank_ids}
     return {

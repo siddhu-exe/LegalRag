@@ -237,6 +237,48 @@ class TestEndToEndOnStubPipeline(unittest.TestCase):
             script.run_retrieval(items, pipeline, lookup, checkpoint, 50, retry_errors=True, log=lambda *_: None)
             self.assertEqual(checkpoint.records["1"]["status"], "ok")
 
+    def test_empty_reranker_result_is_a_system_error_not_a_silent_fallback(self):
+        pipeline, lookup = script.load_pipeline("local_stub")
+
+        class EmptyReranker:
+            @staticmethod
+            def rerank(**kwargs):
+                return []
+
+        class Pipeline:
+            bm25 = pipeline.bm25
+            dense = pipeline.dense
+            reranker = EmptyReranker
+
+        with self.assertRaisesRegex(RuntimeError, "reranker returned no results"):
+            script.retrieve_all_systems(Pipeline, lookup, "anticipatory bail", 5)
+
+        items = script.load_benchmark(self._write(self.benchmark()[:2]))
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = JsonlCheckpoint(Path(tmp) / "r.jsonl")
+            script.run_retrieval(items, Pipeline, lookup, checkpoint, 5, log=lambda *_: None)
+            self.assertEqual({r["status"] for r in checkpoint.values()}, {"error"})
+            result = script.evaluate(items, checkpoint.records, ks=(1, 5), n_resamples=100)
+            self.assertEqual(sorted(result["retrieval_errors"]), ["1", "2"])
+            self.assertEqual(result["n_scored"], 0)
+            self.assertEqual(result["levels"], {})  # nothing is scored as a miss
+
+    def test_no_candidate_metadata_also_raises(self):
+        pipeline, lookup = script.load_pipeline("local_stub")
+
+        class UnknownIds:
+            @staticmethod
+            def search(query, top_k=50):
+                return [("id-not-in-the-chunk-table", 1.0)]
+
+        class Pipeline:
+            bm25 = UnknownIds
+            dense = UnknownIds
+            reranker = pipeline.reranker
+
+        with self.assertRaisesRegex(RuntimeError, "reranker returned no results"):
+            script.retrieve_all_systems(Pipeline, lookup, "anything", 5)
+
     def test_main_writes_metrics_files_and_metrics_only_reuses_them(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
