@@ -19,6 +19,7 @@ their agreement with human labels (``stats.kappa_interval``) beside any result.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -162,13 +163,20 @@ def build_judge_prompt(
     return "\n\n".join(parts)
 
 
+def _reject_constant(name: str) -> Any:
+    """json.loads accepts NaN, Infinity and -Infinity by default; a score can never be one."""
+    raise JudgeParseError(f"non-finite number {name} in judge reply")
+
+
 def _as_score(value: Any, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise JudgeParseError(f"{name} is not a number")
     try:
         number = float(value)
-    except ValueError as exc:
+    except (ValueError, OverflowError) as exc:
         raise JudgeParseError(f"{name} is not a number") from exc
+    if not math.isfinite(number):  # also catches 1e999, which parses as infinity
+        raise JudgeParseError(f"{name} is not a finite number")
     if number != int(number) or not 1 <= int(number) <= 4:
         raise JudgeParseError(f"{name} must be an integer from 1 to 4")
     return int(number)
@@ -189,7 +197,7 @@ def parse_judge_response(text: str) -> JudgeScores:
     if start == -1 or end <= start:
         raise JudgeParseError("no JSON object found")
     try:
-        data = json.loads(cleaned[start : end + 1])
+        data = json.loads(cleaned[start : end + 1], parse_constant=_reject_constant)
     except json.JSONDecodeError as exc:
         raise JudgeParseError("invalid JSON") from exc
     if not isinstance(data, dict):
@@ -199,7 +207,12 @@ def parse_judge_response(text: str) -> JudgeScores:
         raise JudgeParseError(f"missing keys: {', '.join(missing)}")
 
     rate_raw = data["unsupported_claim_rate"]
-    if isinstance(rate_raw, bool) or not isinstance(rate_raw, (int, float)) or not 0.0 <= rate_raw <= 1.0:
+    if (
+        isinstance(rate_raw, bool)
+        or not isinstance(rate_raw, (int, float))
+        or not math.isfinite(rate_raw)
+        or not 0.0 <= rate_raw <= 1.0
+    ):
         raise JudgeParseError("unsupported_claim_rate must be a number from 0 to 1")
     return JudgeScores(
         answer_relevance=_as_score(data["answer_relevance"], "answer_relevance"),

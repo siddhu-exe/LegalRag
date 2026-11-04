@@ -123,6 +123,50 @@ class TestParsing(unittest.TestCase):
                     parse_judge_response(reply)
 
 
+class TestNonFiniteNumbers(unittest.TestCase):
+    """NaN and Infinity are valid to json.loads but are never valid scores (review fix 3)."""
+
+    FIELDS = ("answer_relevance", "faithfulness", "citation_correctness", "overall_score", "unsupported_claim_rate")
+    CONSTANTS = ("NaN", "Infinity", "-Infinity", "1e999", "-1e999")
+
+    def reply(self, field, literal):
+        return json.dumps(dict(GOOD, **{field: 0})).replace(f'"{field}": 0', f'"{field}": {literal}')
+
+    def test_every_numeric_field_rejects_every_non_finite_literal_as_a_parse_error(self):
+        for field in self.FIELDS:
+            for literal in self.CONSTANTS:
+                with self.subTest(field=field, literal=literal):
+                    with self.assertRaises(JudgeParseError):
+                        parse_judge_response(self.reply(field, literal))
+
+    def test_non_finite_literal_inside_the_rationale_text_is_just_text(self):
+        scores = parse_judge_response(json.dumps(dict(GOOD, rationale="the model said NaN and Infinity")))
+        self.assertIn("NaN", scores.rationale)
+
+    def test_judge_records_a_parse_error_instead_of_raising(self):
+        for literal in ("NaN", "Infinity"):
+            with self.subTest(literal=literal):
+                client = StubClient([self.reply("faithfulness", literal)] * 2)
+                judge = LLMJudge(client, generator_model="generator-model-2")
+                verdict = judge.judge("q", BLOCKS, "answer")
+                self.assertEqual(verdict.status, "parse_error")
+                self.assertEqual(verdict.error_type, "JudgeParseError")
+                self.assertIsNone(verdict.scores)
+                self.assertEqual(verdict.attempts, 2)  # retried once, like any unreadable reply
+
+    def test_a_good_reply_after_a_non_finite_one_is_accepted(self):
+        client = StubClient([self.reply("faithfulness", "NaN"), json.dumps(GOOD)])
+        verdict = LLMJudge(client, generator_model="generator-model-2").judge("q", BLOCKS, "answer")
+        self.assertTrue(verdict.ok)
+        self.assertEqual(verdict.attempts, 2)
+
+    def test_label_is_a_judge_system_error_not_a_bad_answer(self):
+        client = StubClient([self.reply("overall_score", "NaN")] * 2)
+        verdict = LLMJudge(client, generator_model="generator-model-2").judge("q", BLOCKS, "answer")
+        label = label_failure(True, False, verdict, ["c1"], ["c1"])
+        self.assertEqual(label, "System Error (judge)")
+
+
 class TestPrompt(unittest.TestCase):
     def test_prompt_has_question_context_and_answer_but_no_system_identity(self):
         prompt = build_judge_prompt("What is s.438?", BLOCKS, "It allows bail [Chunk ID: c1].")
