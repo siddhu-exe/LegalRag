@@ -34,6 +34,8 @@ import csv
 import datetime as dt
 import glob
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Sequence
@@ -70,6 +72,7 @@ OUTPUT_FILES = (
     "build_report.json", "date_disagreements_sample.csv", "short_orders_sample.csv",
 )
 SNIPPET_CHARS = 400
+STAGING_DIRNAME = ".build_staging"
 
 
 def assert_v2_output_dir(path: Path) -> None:
@@ -267,6 +270,21 @@ def write_csv(path: Path, rows: List[Dict[str, Any]], columns: Sequence[str]) ->
         writer.writerows(rows)
 
 
+def commit_staged(stage: Path, out_dir: Path) -> None:
+    """Moves a finished build from the staging folder into place; the report moves last.
+
+    The old report is removed first, so a crash part-way leaves data with NO report (visibly
+    incomplete) and never new data beside an old report.
+    """
+    report = out_dir / "build_report.json"
+    if report.exists():
+        report.unlink()
+    for name in OUTPUT_FILES:
+        if name != "build_report.json":
+            os.replace(stage / name, out_dir / name)
+    os.replace(stage / "build_report.json", report)
+
+
 def build(
     sources: Dict[str, List[Path]],
     out_dir: Path,
@@ -288,20 +306,26 @@ def build(
             problems += schema_problems(config_name, inspect_files(files))
     if problems:
         raise SystemExit("Cannot build:\n  " + "\n  ".join(problems))
+    created_out_dir = not out_dir.exists()
     out_dir.mkdir(parents=True, exist_ok=True)
     existing = [name for name in OUTPUT_FILES if (out_dir / name).exists()]
     if existing and not overwrite:
         raise SystemExit(
             f"{out_dir} already holds {', '.join(existing)}. Use --overwrite or a new --out-dir."
         )
+    # Everything is written under a staging folder and moved into place only after the whole build
+    # succeeds, so a failed or interrupted build cannot leave new partial files beside an old report.
+    stage = out_dir / STAGING_DIRNAME
+    shutil.rmtree(stage, ignore_errors=True)  # left over from a build that was killed
+    stage.mkdir()
 
     specs = default_sources(court_code)
     builder = CorpusBuilder(config)
     schema = arrow_schema(OUTPUT_FIELDS)
     link_schema = arrow_schema([("duplicate_cnr", "string"), ("kept_cnr", "string"), ("source_config", "string")])
-    search_writer = BufferedParquetWriter(out_dir / "search_corpus.parquet", schema)
-    lookup_writer = BufferedParquetWriter(out_dir / "lookup_only.parquet", schema, flush_rows=50_000)
-    link_writer = BufferedParquetWriter(out_dir / "duplicate_links.parquet", link_schema, flush_rows=50_000)
+    search_writer = BufferedParquetWriter(stage / "search_corpus.parquet", schema)
+    lookup_writer = BufferedParquetWriter(stage / "lookup_only.parquet", schema, flush_rows=50_000)
+    link_writer = BufferedParquetWriter(stage / "duplicate_links.parquet", link_schema, flush_rows=50_000)
     date_sampler = ReservoirSampler(date_sample_size, seed)
     short_sampler = ReservoirSampler(short_sample_size, seed)
 
@@ -350,55 +374,69 @@ def build(
                             "your_label": "",  # filled in by the owner during plan task P3
                         }
                     )
-    finally:
         search_writer.close()
         lookup_writer.close()
         link_writer.close()
 
-    write_csv(
-        out_dir / "date_disagreements_sample.csv",
-        date_sampler.items,
-        ["cnr", "bench", "decision_date", "cnr_date", "year_conflict", "text_start"],
-    )
-    write_csv(
-        out_dir / "short_orders_sample.csv",
-        short_sampler.items,
-        ["cnr", "bench", "title", "clean_chars", "text", "your_label"],
-    )
+        write_csv(
+            stage / "date_disagreements_sample.csv",
+            date_sampler.items,
+            ["cnr", "bench", "decision_date", "cnr_date", "year_conflict", "text_start"],
+        )
+        write_csv(
+            stage / "short_orders_sample.csv",
+            short_sampler.items,
+            ["cnr", "bench", "title", "clean_chars", "text", "your_label"],
+        )
 
-    settings = {
-        key: (value.isoformat() if isinstance(value, dt.date) else value)
-        for key, value in vars(config).items()
-    }
-    report = {
-        "built_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "command": list(command) if command else None,
-        "settings": settings,
-        "bombay_court_code": court_code,
-        "max_rows_per_config": max_rows,
-        "partial_build": max_rows is not None,
-        "input_files": input_files,
-        "outputs": {
-            "search_corpus_rows": search_writer.count,
-            "lookup_only_rows": lookup_writer.count,
-            "duplicate_links_rows": link_writer.count,
-        },
-        "samples": {
-            "date_disagreements_seen": date_sampler.seen,
-            "date_disagreements_written": len(date_sampler.items),
-            "short_orders_seen": short_sampler.seen,
-            "short_orders_written": len(short_sampler.items),
-            "seed": seed,
-        },
-        "stats": builder.stats.to_dict(),
-        "notes": [
-            "bench names for newas and newos are inferred, not confirmed (docs/DATA_PROFILE_BOMBAY.md).",
-            "Near duplicates are removed from the search corpus only; lookup-only records are never "
-            "de-duplicated because identical short orders in different cases are still different cases.",
-            "Drop reasons are exclusive: each scanned record is counted once.",
-        ],
-    }
-    (out_dir / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        settings = {
+            key: (value.isoformat() if isinstance(value, dt.date) else value)
+            for key, value in vars(config).items()
+        }
+        report = {
+            "built_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "command": list(command) if command else None,
+            "settings": settings,
+            "bombay_court_code": court_code,
+            "max_rows_per_config": max_rows,
+            "partial_build": max_rows is not None,
+            "input_files": input_files,
+            "outputs": {
+                "search_corpus_rows": search_writer.count,
+                "lookup_only_rows": lookup_writer.count,
+                "duplicate_links_rows": link_writer.count,
+            },
+            "samples": {
+                "date_disagreements_seen": date_sampler.seen,
+                "date_disagreements_written": len(date_sampler.items),
+                "short_orders_seen": short_sampler.seen,
+                "short_orders_written": len(short_sampler.items),
+                "seed": seed,
+            },
+            "stats": builder.stats.to_dict(),
+            "notes": [
+                "bench names for newas and newos are inferred, not confirmed (docs/DATA_PROFILE_BOMBAY.md).",
+                "Near duplicates are removed from the search corpus only; lookup-only records are never "
+                "de-duplicated because identical short orders in different cases are still different cases.",
+                "Drop reasons are exclusive: each scanned record is counted once.",
+            ],
+        }
+        (stage / "build_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+        commit_staged(stage, out_dir)
+    except BaseException:  # includes Ctrl+C: leave the previous outputs, if any, exactly as they were
+        for writer in (search_writer, lookup_writer, link_writer):
+            try:
+                writer.close()
+            except Exception:  # noqa: BLE001 - the original error matters more than a failed close
+                pass
+        shutil.rmtree(stage, ignore_errors=True)
+        if created_out_dir:
+            try:
+                out_dir.rmdir()  # only succeeds if empty
+            except OSError:
+                pass
+        raise
+    shutil.rmtree(stage, ignore_errors=True)
     return report
 
 

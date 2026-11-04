@@ -8,6 +8,7 @@ written to a temporary folder to test the script; no network, models or real art
 import datetime as dt
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -698,6 +699,164 @@ class TestRatesInBuildOutput(unittest.TestCase):
             with contextlib.redirect_stdout(buffer):
                 self.script.print_summary(report)
             self.assertEqual(buffer.getvalue().count("n/a"), 2)
+
+
+class TestStagedOutputs(unittest.TestCase):
+    """A failed build must not leave new partial files beside an old report (review fix 5)."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import pyarrow  # noqa: F401
+        except ImportError:  # pragma: no cover
+            raise unittest.SkipTest("pyarrow is not installed")
+        cls.script = _load_script()
+
+    def source(self, tmp, n=6, label="a"):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        rows = [record(cnr=f"HCBM01_{i}_2015-06-01", text=body(f"{label}{i}")) for i in range(n)]
+        path = tmp / f"hc_{label}.parquet"
+        pq.write_table(pa.Table.from_pylist(rows), path)
+        return path
+
+    def run_build(self, tmp, source, out, **kwargs):
+        return self.script.build({"high_courts": [source], "supreme_court": []}, out,
+                                 BuildConfig(min_chars=200, today=TODAY), **kwargs)
+
+    def snapshot(self, out):
+        return {p.name: p.read_bytes() for p in sorted(out.iterdir())}
+
+    def failing_after(self, count):
+        original = CorpusBuilder.process
+        seen = {"n": 0}
+
+        def process(builder_self, record_, source_):
+            seen["n"] += 1
+            if seen["n"] > count:
+                raise RuntimeError("simulated failure part-way through")
+            return original(builder_self, record_, source_)
+
+        return mock.patch.object(CorpusBuilder, "process", process)
+
+    def test_failed_overwrite_leaves_the_previous_build_byte_for_byte_intact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            self.run_build(tmp, self.source(tmp, 6, "old"), out)
+            before = self.snapshot(out)
+            self.assertIn("build_report.json", before)
+
+            with self.failing_after(3):
+                with self.assertRaisesRegex(RuntimeError, "simulated failure"):
+                    self.run_build(tmp, self.source(tmp, 9, "new"), out, overwrite=True)
+            self.assertEqual(self.snapshot(out), before)  # data files, samples and the report: all unchanged
+            self.assertFalse((out / self.script.STAGING_DIRNAME).exists())
+
+    def test_failed_build_in_a_new_directory_leaves_nothing_at_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "fresh"
+            with self.failing_after(2):
+                with self.assertRaises(RuntimeError):
+                    self.run_build(tmp, self.source(tmp), out)
+            self.assertFalse(out.exists())
+
+    def test_failed_build_in_an_existing_empty_directory_leaves_it_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "existing"
+            out.mkdir(parents=True)
+            with self.failing_after(2):
+                with self.assertRaises(RuntimeError):
+                    self.run_build(tmp, self.source(tmp), out)
+            self.assertEqual(list(out.iterdir()), [])
+
+    def test_interrupt_is_cleaned_up_too(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            self.run_build(tmp, self.source(tmp, 4, "old"), out)
+            before = self.snapshot(out)
+            with mock.patch.object(CorpusBuilder, "process", side_effect=KeyboardInterrupt):
+                with self.assertRaises(KeyboardInterrupt):
+                    self.run_build(tmp, self.source(tmp, 4, "new"), out, overwrite=True)
+            self.assertEqual(self.snapshot(out), before)
+
+    def test_nothing_appears_in_the_output_directory_until_the_build_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            seen_midway = {}
+            original = CorpusBuilder.process
+            counter = {"n": 0}
+
+            def process(builder_self, record_, source_):
+                counter["n"] += 1
+                if counter["n"] == 4:
+                    seen_midway["files"] = sorted(p.name for p in out.iterdir())
+                return original(builder_self, record_, source_)
+
+            with mock.patch.object(CorpusBuilder, "process", process):
+                self.run_build(tmp, self.source(tmp, 6), out)
+            self.assertEqual(seen_midway["files"], [self.script.STAGING_DIRNAME])
+            self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(self.script.OUTPUT_FILES))
+
+    def test_report_is_moved_last_and_the_old_report_is_gone_before_any_data_moves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            self.run_build(tmp, self.source(tmp, 4, "old"), out)
+            order, old_report_present = [], []
+            real_replace = os.replace
+
+            def recording_replace(src, dst):
+                old_report_present.append((out / "build_report.json").exists())
+                order.append(Path(dst).name)
+                return real_replace(src, dst)
+
+            with mock.patch.object(self.script.os, "replace", recording_replace):
+                self.run_build(tmp, self.source(tmp, 5, "new"), out, overwrite=True)
+            self.assertEqual(order[-1], "build_report.json")
+            self.assertEqual(sorted(order), sorted(self.script.OUTPUT_FILES))
+            self.assertFalse(any(old_report_present[:-1]))  # old report removed before the first data move
+            new_report = json.loads((out / "build_report.json").read_text(encoding="utf-8"))
+            self.assertEqual(new_report["stats"]["scanned"], 5)
+
+    def test_successful_overwrite_replaces_every_file(self):
+        import pyarrow.parquet as pq
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            self.run_build(tmp, self.source(tmp, 4, "old"), out)
+            self.run_build(tmp, self.source(tmp, 7, "new"), out, overwrite=True)
+            cnrs = {r["cnr"] for r in pq.read_table(out / "search_corpus.parquet").to_pylist()}
+            self.assertEqual(len(cnrs), 7)
+            self.assertEqual(json.loads((out / "build_report.json").read_text(encoding="utf-8"))["stats"]["scanned"], 7)
+            self.assertFalse((out / self.script.STAGING_DIRNAME).exists())
+
+    def test_staging_left_by_a_killed_build_is_cleared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            stale = out / self.script.STAGING_DIRNAME
+            stale.mkdir(parents=True)
+            (stale / "search_corpus.parquet").write_bytes(b"half written")
+            self.run_build(tmp, self.source(tmp), out)
+            self.assertFalse(stale.exists())
+            self.assertGreater((out / "search_corpus.parquet").stat().st_size, len(b"half written"))
+
+    def test_refusing_to_overwrite_touches_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "v2" / "corpus"
+            self.run_build(tmp, self.source(tmp, 4, "old"), out)
+            before = self.snapshot(out)
+            with self.assertRaises(SystemExit):
+                self.run_build(tmp, self.source(tmp, 4, "new"), out)
+            self.assertEqual(self.snapshot(out), before)
 
 
 class TestSchemaChecks(unittest.TestCase):
