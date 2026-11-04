@@ -57,6 +57,7 @@ from legalrag.evaluation.judge import (  # noqa: E402
     check_independence,
     is_refusal,
     label_failure,
+    strip_think_blocks,
     summarize_generation,
 )
 from legalrag.evaluation.runtime import (  # noqa: E402
@@ -108,6 +109,7 @@ def process_item(
         "generation_ok": False,
         "gen_error_type": None,
         "answer": None,
+        "reasoning_stripped": False,
         "refused": False,
         "cited_chunk_ids": [],
         "citations_in_context": None,
@@ -127,13 +129,20 @@ def process_item(
     except Exception as exc:  # noqa: BLE001 - class name only, never provider text
         record["gen_error_type"] = type(exc).__name__
     else:
-        record.update(generation_ok=True, answer=generated.text)
         record["tokens"]["gen_prompt"] = generated.prompt_tokens or 0
         record["tokens"]["gen_completion"] = generated.completion_tokens or 0
-        cited = extract_citations(generated.text)
-        record["cited_chunk_ids"] = cited
-        record["citations_in_context"] = all(c in context_ids for c in cited) if cited else None
-        record["refused"] = is_refusal(generated.text)
+        # Reasoning text is not part of the answer: strip it before refusal, citation and judge steps,
+        # so an invented citation or the refusal sentence inside <think> cannot change any metric.
+        answer, stripped = strip_think_blocks(generated.text)
+        record["reasoning_stripped"] = stripped
+        if not answer:
+            record["gen_error_type"] = "EmptyAnswerAfterReasoning"  # for example cut off while still thinking
+        else:
+            record.update(generation_ok=True, answer=answer)
+            cited = extract_citations(answer)
+            record["cited_chunk_ids"] = cited
+            record["citations_in_context"] = all(c in context_ids for c in cited) if cited else None
+            record["refused"] = is_refusal(answer)
     record["generation_ms"] = round((time.perf_counter() - t0) * 1000.0, 1)
 
     verdict: Optional[JudgeVerdict] = None

@@ -23,7 +23,7 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from legalrag.evaluation.metrics import classify_failure_mode
 from legalrag.evaluation.stats import summarize, wilson_interval
@@ -104,7 +104,9 @@ Also give:
 Reply with ONLY one JSON object with exactly these keys: answer_relevance, faithfulness, citation_correctness, overall_score, unsupported_claim_rate, hallucination, rationale."""
 
 REFUSAL_PHRASE = "does not contain sufficient information"
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_THINK_BLOCK = re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECASE)
+_THINK_OPEN = re.compile(r"<(?:think|thinking)>", re.IGNORECASE)
+_THINK_CLOSE = re.compile(r"</(?:think|thinking)>", re.IGNORECASE)
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _SCORE_FIELDS = ("answer_relevance", "faithfulness", "citation_correctness", "overall_score")
 
@@ -134,6 +136,25 @@ class JudgeScores:
             "hallucination": self.hallucination,
             "rationale": self.rationale,
         }
+
+
+def strip_think_blocks(text: Optional[str]) -> Tuple[str, bool]:
+    """Removes a reasoning model's ``<think>...</think>`` text, so only the answer is measured.
+
+    Handles several blocks, any letter case, a block that is never closed (the model ran out of
+    tokens while thinking, so nothing after the tag is an answer) and a closing tag with no opening
+    tag (everything before it is reasoning). Returns the cleaned text and whether anything was removed.
+    """
+    original = text or ""
+    cleaned = _THINK_BLOCK.sub("", original)
+    opened = _THINK_OPEN.search(cleaned)
+    if opened:
+        cleaned = cleaned[: opened.start()]
+    closes = list(_THINK_CLOSE.finditer(cleaned))
+    if closes:
+        cleaned = cleaned[closes[-1].end():]
+    cleaned = cleaned.strip()
+    return cleaned, cleaned != original.strip()
 
 
 def build_judge_prompt(
@@ -192,7 +213,7 @@ def _as_bool(value: Any) -> bool:
 
 def parse_judge_response(text: str) -> JudgeScores:
     """Parses and validates a judge reply. Tolerates code fences and ``<think>`` blocks."""
-    cleaned = _FENCE.sub("", _THINK_BLOCK.sub("", text or "").strip()).strip()
+    cleaned = _FENCE.sub("", strip_think_blocks(text)[0]).strip()
     start, end = cleaned.find("{"), cleaned.rfind("}")
     if start == -1 or end <= start:
         raise JudgeParseError("no JSON object found")

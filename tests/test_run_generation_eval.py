@@ -48,10 +48,12 @@ class StubJudgeClient:
     def __init__(self, reply=None, model_name="judge-m"):
         self.model_name = model_name
         self.calls = 0
+        self.prompts = []
         self.reply = reply if reply is not None else json.dumps(GOOD_SCORES)
 
     def generate(self, system_prompt, user_prompt, temperature=0.0, max_tokens=1024):
         self.calls += 1
+        self.prompts.append((system_prompt, user_prompt))
         return SimpleNamespace(text=self.reply, prompt_tokens=500, completion_tokens=60)
 
 
@@ -120,6 +122,46 @@ class TestProcessItem(unittest.TestCase):
         self.assertEqual((record["status"], record["judge_status"]), ("error", "parse_error"))
         self.assertEqual(record["failure_label"], "System Error (judge)")
         self.assertIsNone(record["scores"])
+
+    def test_reasoning_is_stripped_before_any_metric(self):
+        # The reasoning cites an invented chunk and contains the refusal sentence; neither may count.
+        answer = ("<think>I could say: the provided judgment context does not contain sufficient information. "
+                  "Or cite [Chunk ID: invented-in-thoughts].</think>\nBail is allowed [Chunk ID: c0].")
+        judge = make_judge()
+        record = self.run_item(StubGenerator(lambda n, p: answer), judge)
+        self.assertEqual(record["answer"], "Bail is allowed [Chunk ID: c0].")
+        self.assertTrue(record["reasoning_stripped"])
+        self.assertEqual(record["cited_chunk_ids"], ["c0"])
+        self.assertTrue(record["citations_in_context"])
+        self.assertFalse(record["refused"])
+        self.assertEqual(record["status"], "ok")
+        judge_prompt = judge.client.prompts[0][1]
+        self.assertNotIn("invented-in-thoughts", judge_prompt)
+        self.assertNotIn("<think>", judge_prompt)
+        self.assertIn("Bail is allowed", judge_prompt)
+
+    def test_a_refusal_after_reasoning_is_still_a_refusal(self):
+        judge = make_judge()
+        record = self.run_item(StubGenerator(lambda n, p: f"<think>hmm</think>{REFUSAL}"), judge)
+        self.assertTrue(record["refused"])
+        self.assertEqual(judge.client.calls, 0)
+
+    def test_answer_that_was_only_reasoning_is_a_generation_system_error(self):
+        judge = make_judge()
+        for text in ("<think>ran out of tokens while thinking [Chunk ID: c0]", "<think>done</think>   "):
+            with self.subTest(text=text):
+                record = self.run_item(StubGenerator(lambda n, p, t=text: t), judge)
+                self.assertFalse(record["generation_ok"])
+                self.assertEqual(record["gen_error_type"], "EmptyAnswerAfterReasoning")
+                self.assertEqual(record["failure_label"], "System Error (generation)")
+                self.assertEqual(record["status"], "error")
+                self.assertIsNone(record["answer"])
+        self.assertEqual(judge.client.calls, 0)
+
+    def test_answers_without_reasoning_are_unchanged(self):
+        record = self.run_item()
+        self.assertFalse(record["reasoning_stripped"])
+        self.assertEqual(record["answer"], "Anticipatory bail is available [Chunk ID: c0].")
 
     def test_citation_outside_the_context_is_flagged(self):
         record = self.run_item(StubGenerator(lambda n, p: "Held so [Chunk ID: c0] and [Chunk ID: invented]."))

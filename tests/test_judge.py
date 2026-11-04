@@ -17,6 +17,7 @@ from legalrag.evaluation.judge import (
     model_family,
     normalize_model_id,
     parse_judge_response,
+    strip_think_blocks,
     summarize_generation,
 )
 from legalrag.generation.client import GenerationError
@@ -339,3 +340,29 @@ class TestSummarizeGeneration(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStripThinkBlocks(unittest.TestCase):
+    def test_cases(self):
+        cases = [
+            ("<think>plan</think>Final answer.", "Final answer.", True),
+            ("<think>a\nmultiline\nplan</think>\n\nFinal [Chunk ID: c1].", "Final [Chunk ID: c1].", True),
+            ("<THINK>x</Think>Answer", "Answer", True),
+            ("<think>one</think>A <think>two</think>B", "A B", True),
+            ("<thinking>x</thinking>Answer", "Answer", True),
+            ("Answer<think>trailing thoughts that never end", "Answer", True),
+            ("<think>still thinking when the tokens ran out", "", True),
+            ("hidden reasoning without an opening tag</think>Answer", "Answer", True),
+            ("No reasoning here.", "No reasoning here.", False),
+            ("  padded  ", "padded", False),
+            ("", "", False),
+        ]
+        for raw, expected, changed in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(strip_think_blocks(raw), (expected, changed))
+        self.assertEqual(strip_think_blocks(None), ("", False))
+
+    def test_judge_reply_parsing_uses_the_same_stripping(self):
+        reply = "reasoning without an opening tag { not json }</think>" + json.dumps(GOOD)
+        self.assertEqual(parse_judge_response(reply).overall_score, 4)
+
