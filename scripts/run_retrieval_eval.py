@@ -48,10 +48,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:
-    from legalrag.evaluation.runtime import JsonlCheckpoint, ensure_run_config
+    from legalrag.evaluation.runtime import JsonlCheckpoint, check_run_config, ensure_run_config, sha256_file
 except ImportError:  # running from a checkout without `pip install -e .`
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from legalrag.evaluation.runtime import JsonlCheckpoint, ensure_run_config  # noqa: E402
+    from legalrag.evaluation.runtime import (  # noqa: E402
+        JsonlCheckpoint,
+        check_run_config,
+        ensure_run_config,
+        sha256_file,
+    )
 
 from legalrag.evaluation.benchmark import file_sha256, load_benchmark, sample_benchmark  # noqa: E402,F401
 from legalrag.evaluation.stats import (  # noqa: E402
@@ -350,6 +355,10 @@ def render_markdown(result: Dict[str, Any]) -> str:
         f"{settings['n_resamples']:,} resamples, seed {settings['seed']}.",
         "",
     ]
+    identity = result.get("run_identity", {})
+    if identity.get("pipeline") == "production" and not identity.get("artifacts_verified", True):
+        lines += ["> **Note:** the artifacts were not on the machine that scored these results, so their identity "
+                  "was not re-checked; the benchmark, models and depth were.", ""]
     if result["retrieval_errors"]:
         lines += ["> **Warning:** some questions hit system errors and are excluded. Re-run with --retry-errors.", ""]
     names = metric_names(settings["ks"])
@@ -418,6 +427,46 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+ARTIFACT_NAMES = ("bm25.pkl", "dense.index", "legal_chunks.parquet")
+
+
+def run_identity(args: argparse.Namespace, require_artifacts: bool, log: Any = print) -> Dict[str, Any]:
+    """What produced the saved results: benchmark, pipeline, depth, models and artifact contents.
+
+    Artifact identity is the SHA-256 of each artifact file (a few seconds for the v1 files). When
+    ``require_artifacts`` is False (``--metrics-only`` on a machine without the artifacts) the
+    artifact hashes are left out and ``artifacts_verified`` is False; everything else is still checked.
+    """
+    identity: Dict[str, Any] = {
+        "benchmark_sha256": file_sha256(args.benchmark),
+        "pipeline": args.pipeline,
+        "depth": args.depth,
+    }
+    verified = True
+    if args.pipeline == "production":
+        from legalrag.api.config import get_settings
+
+        settings = get_settings()
+        identity["embedding_model"] = settings.embedding_model_name
+        identity["reranker_model"] = settings.reranker_model_name
+        paths = {
+            "bm25.pkl": settings.bm25_path,
+            "dense.index": settings.dense_index_path,
+            "legal_chunks.parquet": settings.chunks_path,
+        }
+        missing = [str(p) for p in paths.values() if not p.is_file()]
+        if missing and require_artifacts:
+            raise SystemExit("Missing artifacts: " + ", ".join(missing))
+        if missing:
+            verified = False
+            log("Artifacts are not on this machine: their identity is not re-checked.")
+        else:
+            log("Hashing artifacts to record their identity ...")
+            identity["artifacts"] = {name: sha256_file(path) for name, path in paths.items()}
+    identity["artifacts_verified"] = verified
+    return identity
+
+
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
     if max(args.ks) > args.depth:
@@ -426,12 +475,17 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = JsonlCheckpoint(args.out_dir / "retrieval_per_question.jsonl")
 
+    # The same check runs with and without --metrics-only: scoring saved results against a different
+    # benchmark, artifact or model would mix two experiments in one table.
+    config_path = args.out_dir / "retrieval_run_config.json"
+    identity = run_identity(args, require_artifacts=not args.metrics_only)
+    checked = {k: v for k, v in identity.items() if k != "artifacts_verified"}
+    if args.metrics_only:
+        check_run_config(config_path, checked, force=args.force_resume, require_existing=True)
+    else:
+        ensure_run_config(config_path, checked, force=args.force_resume)
+
     if not args.metrics_only:
-        ensure_run_config(
-            args.out_dir / "retrieval_run_config.json",
-            {"benchmark_sha256": file_sha256(args.benchmark), "pipeline": args.pipeline, "depth": args.depth},
-            force=args.force_resume,
-        )
         pipeline, lookup = load_pipeline(args.pipeline)
         run_retrieval(items, pipeline, lookup, checkpoint, args.depth, args.retry_errors)
 
@@ -439,6 +493,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         items, checkpoint.records, args.ks, SYSTEMS, args.baseline, args.breakdown, args.breakdown_k,
         args.n_resamples, args.seed,
     )
+    result["run_identity"] = {**identity, "check_skipped_by_force_resume": bool(args.force_resume)}
     (args.out_dir / "retrieval_metrics.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     (args.out_dir / "retrieval_metrics.md").write_text(render_markdown(result), encoding="utf-8")
     print(f"Wrote {args.out_dir / 'retrieval_metrics.json'} and retrieval_metrics.md")

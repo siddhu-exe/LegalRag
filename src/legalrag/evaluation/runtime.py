@@ -12,6 +12,7 @@ No network access and no LLM client lives here.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -199,30 +200,69 @@ class JsonlCheckpoint:
         return list(self.records.values())
 
 
+def sha256_file(path: Path, chunk_bytes: int = 8 * 1024 * 1024) -> str:
+    """SHA-256 of a file, streamed so multi-gigabyte index files do not fill memory."""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(chunk_bytes), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def check_run_config(
+    path: Path,
+    config: Mapping[str, Any],
+    keys: Optional[Sequence[str]] = None,
+    force: bool = False,
+    require_existing: bool = False,
+) -> bool:
+    """Read-only check of the settings that produced the saved results. Writes nothing.
+
+    Returns True if a saved config existed and matched, False if there is none yet. Stops with
+    SystemExit when a setting changed (a different judge, benchmark, retrieval file, artifact or
+    prompt would silently mix two experiments), or, with ``require_existing``, when there is no
+    saved config at all (results of unknown origin). ``force`` skips the check and returns False.
+    """
+    path = Path(path)
+    if force:
+        return False
+    if not path.exists():
+        if require_existing:
+            raise SystemExit(
+                f"No saved settings at {path}, so these results cannot be matched to a run. "
+                "Re-run without --metrics-only, or use --force-resume if you know where they came from."
+            )
+        return False
+    current = {k: config[k] for k in (keys or config)}
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    changed = {k: (saved.get(k), current[k]) for k in current if saved.get(k) != current[k]}
+    if changed:
+        detail = "; ".join(f"{k}: was {old!r}, now {new!r}" for k, (old, new) in changed.items())
+        raise SystemExit(
+            f"Refusing to use the results in {path.parent}: settings changed ({detail}). "
+            "Use a new --out-dir, or --force-resume if you accept mixed results."
+        )
+    return True
+
+
 def ensure_run_config(
     path: Path,
     config: Mapping[str, Any],
     keys: Optional[Sequence[str]] = None,
     force: bool = False,
 ) -> None:
-    """Writes the run settings next to the results, or checks them when resuming.
+    """Checks the saved settings (see ``check_run_config``), or writes them on the first run.
 
-    ``keys`` limits the check to settings that change results (models, benchmark, system).
-    A mismatch stops the run, so a resume cannot mix judges or generators in one file.
+    The file is written to a temporary name and renamed, so a crash cannot leave half a config.
     """
     path = Path(path)
-    current = {k: config[k] for k in (keys or config)}
-    if path.exists() and not force:
-        saved = json.loads(path.read_text(encoding="utf-8"))
-        changed = {
-            k: (saved.get(k), current[k]) for k in current if saved.get(k) != current[k]
-        }
-        if changed:
-            detail = "; ".join(f"{k}: was {old!r}, now {new!r}" for k, (old, new) in changed.items())
-            raise SystemExit(
-                f"Refusing to resume {path.parent}: settings changed ({detail}). "
-                "Use a new --out-dir, or --force-resume if you accept mixed results."
-            )
+    if check_run_config(path, config, keys, force):
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(dict(config), indent=2, default=str), encoding="utf-8")
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(dict(config), indent=2, default=str), encoding="utf-8")
+    os.replace(temporary, path)

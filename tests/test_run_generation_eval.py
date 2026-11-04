@@ -255,13 +255,93 @@ class TestMain(unittest.TestCase):
         with self.assertRaises(SystemExit):
             script.main(argv + ["--retry-errors"], clients=(generator, judge))
 
-    def test_report_names_the_models_that_produced_the_items(self):
+    def test_metrics_only_checks_the_models_too(self):
         script.main(self.argv("--yes"), clients=self.clients())
-        argv = self.argv("--metrics-only")
+        other_judge = self.argv("--metrics-only")
+        other_judge[other_judge.index("--judge-model") + 1] = "other-judge"
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(other_judge)
+        self.assertIn("judge_model", str(ctx.exception))
+        other_generator = self.argv("--metrics-only")
+        other_generator[other_generator.index("--generator-model") + 1] = "other-gen"
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(other_generator)
+        self.assertIn("generator_model", str(ctx.exception))
+        script.main(self.argv("--metrics-only"))  # the same settings still work
+
+    def test_forced_metrics_only_names_the_models_that_produced_the_items(self):
+        script.main(self.argv("--yes"), clients=self.clients())
+        argv = self.argv("--metrics-only", "--force-resume")
         argv[argv.index("--judge-model") + 1] = "other-judge"
         script.main(argv)
         metrics = json.loads((self.out / "generation_metrics.json").read_text(encoding="utf-8"))
         self.assertEqual(metrics["run"]["judge_model"], "judge-m")
+        self.assertTrue(metrics["run"]["check_skipped_by_force_resume"])
+
+    def test_metrics_only_without_a_saved_config_is_refused(self):
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(self.argv("--metrics-only"))
+        self.assertIn("No saved settings", str(ctx.exception))
+        JsonlCheckpoint(self.out / "generation_per_item.jsonl").append(
+            {"item_id": "0", "status": "error", "generation_ok": False, "generator_model": "gen-m", "judge_model": "judge-m"}
+        )
+        with self.assertRaises(SystemExit):
+            script.main(self.argv("--metrics-only"))  # a results file alone is not enough
+        script.main(self.argv("--metrics-only", "--force-resume"))  # explicit override
+
+    def test_changed_retrieval_results_block_resume_and_metrics(self):
+        script.main(self.argv("--yes"), clients=self.clients())
+        retrieval = self.dir / "retrieval.jsonl"
+        original = retrieval.read_bytes()
+        JsonlCheckpoint(retrieval).append(retrieval_record("extra"))  # retrieval was re-run or extended
+        for extra in (("--yes",), ("--metrics-only",), ("--dry-run",)):
+            with self.subTest(extra=extra):
+                generator, judge = self.clients()
+                with self.assertRaises(SystemExit) as ctx:
+                    script.main(self.argv(*extra), clients=(generator, judge))
+                self.assertIn("retrieval_results_sha256", str(ctx.exception))
+                self.assertEqual(generator.calls, 0)
+        retrieval.write_bytes(original)
+        script.main(self.argv("--metrics-only"))  # restored file matches again
+
+    def test_changed_benchmark_blocks_resume(self):
+        script.main(self.argv("--yes"), clients=self.clients())
+        bench = self.dir / "bench.json"
+        questions = json.loads(bench.read_text(encoding="utf-8"))
+        questions[0]["question"] = "A different question?"
+        bench.write_text(json.dumps(questions), encoding="utf-8")
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(self.argv("--metrics-only"))
+        self.assertIn("benchmark_sha256", str(ctx.exception))
+
+    def test_changed_prompts_block_resume(self):
+        script.main(self.argv("--yes"), clients=self.clients())
+        with mock.patch.object(script, "SYSTEM_PROMPT", script.SYSTEM_PROMPT + " Be brief."):
+            with self.assertRaises(SystemExit) as ctx:
+                script.main(self.argv("--metrics-only"))
+        self.assertIn("generator_prompt_sha256", str(ctx.exception))
+        with mock.patch.object(script, "JUDGE_SYSTEM_PROMPT", script.JUDGE_SYSTEM_PROMPT + " Be harsh."):
+            with self.assertRaises(SystemExit) as ctx:
+                script.main(self.argv("--metrics-only"))
+        self.assertIn("judge_prompt_sha256", str(ctx.exception))
+
+    def test_saved_config_records_every_identity_and_the_retrieval_provenance(self):
+        (self.dir / "retrieval_run_config.json").write_text(json.dumps({"artifacts": {"bm25.pkl": "abc"}}), encoding="utf-8")
+        script.main(self.argv("--yes"), clients=self.clients())
+        saved = json.loads((self.out / "generation_run_config.json").read_text(encoding="utf-8"))
+        for key in ("benchmark_sha256", "retrieval_results_sha256", "system", "generator_model", "judge_model",
+                    "generator_prompt_sha256", "judge_prompt_sha256"):
+            self.assertTrue(saved[key], key)
+        self.assertEqual(len(saved["retrieval_results_sha256"]), 64)
+        self.assertEqual(saved["retrieval_run_config"], {"artifacts": {"bm25.pkl": "abc"}})
+        metrics = json.loads((self.out / "generation_metrics.json").read_text(encoding="utf-8"))
+        self.assertEqual(metrics["run"]["identity"]["retrieval_results_sha256"], saved["retrieval_results_sha256"])
+
+    def test_different_system_is_refused(self):
+        script.main(self.argv("--yes"), clients=self.clients())
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(self.argv("--metrics-only", "--system", "bm25"))
+        self.assertIn("system", str(ctx.exception))
 
     def test_missing_retrieval_results_are_skipped_not_invented(self):
         questions = json.loads((self.dir / "bench.json").read_text(encoding="utf-8"))

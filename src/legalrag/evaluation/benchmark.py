@@ -15,11 +15,12 @@ At least one of gold_cnrs, gold_chunk_ids or source_cnr is required.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from legalrag.evaluation.runtime import sha256_file
 
 
 def load_benchmark(path: Path) -> List[Dict[str, Any]]:
@@ -73,4 +74,4 @@ def sample_benchmark(items: List[Dict[str, Any]], size: Optional[int], seed: int
 
 
 def file_sha256(path: Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    return sha256_file(path)

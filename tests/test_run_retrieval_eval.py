@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from legalrag.evaluation.metrics import calculate_recall_at_k
 from legalrag.evaluation.runtime import JsonlCheckpoint
@@ -19,6 +20,7 @@ def _load_script():
 
 
 script = _load_script()
+_REAL_LOAD_PIPELINE = script.load_pipeline
 
 
 def write_json(path: Path, data) -> Path:
@@ -302,6 +304,35 @@ class TestEndToEndOnStubPipeline(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 script.main(["--benchmark", str(write_json(tmp / "b.json", self.benchmark()[:2]))] + base)
 
+    def test_metrics_only_runs_the_same_check_as_a_normal_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "out"
+            base = ["--out-dir", str(out), "--pipeline", "local_stub", "--ks", "1", "--depth", "5", "--n-resamples", "100"]
+            script.main(["--benchmark", str(write_json(tmp / "a.json", self.benchmark()))] + base)
+            other = write_json(tmp / "b.json", self.benchmark()[:2])
+            with self.assertRaises(SystemExit) as ctx:
+                script.main(["--benchmark", str(other)] + base + ["--metrics-only"])
+            self.assertIn("benchmark_sha256", str(ctx.exception))
+            with self.assertRaises(SystemExit) as ctx:
+                script.main(["--benchmark", str(tmp / "a.json")] + [a if a != "5" else "10" for a in base] + ["--metrics-only"])
+            self.assertIn("depth", str(ctx.exception))
+            script.main(["--benchmark", str(tmp / "a.json")] + base + ["--metrics-only"])
+
+    def test_metrics_only_without_a_saved_config_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "out"
+            out.mkdir()
+            JsonlCheckpoint(out / "retrieval_per_question.jsonl").append({"item_id": "1", "status": "error", "error_type": "RuntimeError"})
+            bench = write_json(tmp / "a.json", self.benchmark())
+            args = ["--benchmark", str(bench), "--out-dir", str(out), "--pipeline", "local_stub", "--ks", "1",
+                    "--depth", "5", "--n-resamples", "100", "--metrics-only"]
+            with self.assertRaises(SystemExit) as ctx:
+                script.main(args)
+            self.assertIn("No saved settings", str(ctx.exception))
+            script.main(args + ["--force-resume"])
+
     def test_depth_smaller_than_largest_k_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             bench = write_json(Path(tmp) / "b.json", self.benchmark())
@@ -313,6 +344,94 @@ class TestEndToEndOnStubPipeline(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         return write_json(Path(self._tmp.name) / "bench.json", data)
+
+
+class TestArtifactAndModelIdentity(unittest.TestCase):
+    """Production runs record artifact contents and model names, and later scoring must match them."""
+
+    def setUp(self):
+        from legalrag.api.config import Settings
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.artifacts = self.dir / "artifacts"
+        self.artifacts.mkdir()
+        for name, data in (("bm25.pkl", b"bm25-v1"), ("dense.index", b"dense-v1"), ("legal_chunks.parquet", b"chunks-v1")):
+            (self.artifacts / name).write_bytes(data)
+        self.Settings = Settings
+        self.settings = self.settings_with()
+        patcher = mock.patch("legalrag.api.config.get_settings", side_effect=lambda: self.settings)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # Production settings and artifact files are real; the loaded pipeline is the stub one.
+        patch_loader = mock.patch.object(script, "load_pipeline", lambda mode: _REAL_LOAD_PIPELINE("local_stub"))
+        patch_loader.start()
+        self.addCleanup(patch_loader.stop)
+        self.bench = write_json(self.dir / "bench.json", [question("1", gold_cnrs=["STUB010000012020_1"])])
+        self.out = self.dir / "out"
+
+    def settings_with(self, **overrides):
+        values = dict(environment="production", artifact_dir=self.artifacts)
+        values.update(overrides)
+        return self.Settings(_env_file=None, **values)
+
+    def argv(self, *extra):
+        return ["--benchmark", str(self.bench), "--out-dir", str(self.out), "--pipeline", "production",
+                "--ks", "1", "--depth", "5", "--n-resamples", "100", *extra]
+
+    def test_run_records_artifact_hashes_and_model_names(self):
+        import hashlib
+
+        script.main(self.argv())
+        saved = json.loads((self.out / "retrieval_run_config.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["artifacts"]["bm25.pkl"], hashlib.sha256(b"bm25-v1").hexdigest())
+        self.assertEqual(set(saved["artifacts"]), {"bm25.pkl", "dense.index", "legal_chunks.parquet"})
+        self.assertEqual(saved["embedding_model"], self.settings.embedding_model_name)
+        self.assertEqual(saved["reranker_model"], self.settings.reranker_model_name)
+        self.assertNotIn("artifacts_verified", saved)
+        metrics = json.loads((self.out / "retrieval_metrics.json").read_text(encoding="utf-8"))
+        self.assertTrue(metrics["run_identity"]["artifacts_verified"])
+
+    def test_a_changed_artifact_blocks_both_resume_and_metrics_only(self):
+        script.main(self.argv())
+        (self.artifacts / "dense.index").write_bytes(b"dense-v2-rebuilt")
+        for extra in ((), ("--metrics-only",)):
+            with self.subTest(extra=extra):
+                with self.assertRaises(SystemExit) as ctx:
+                    script.main(self.argv(*extra))
+                self.assertIn("artifacts", str(ctx.exception))
+
+    def test_changed_model_names_block_resume_and_metrics_only(self):
+        script.main(self.argv())
+        for field, key in (("embedding_model_name", "embedding_model"), ("reranker_model_name", "reranker_model")):
+            self.settings = self.settings_with(**{field: "another/model"})
+            for extra in ((), ("--metrics-only",)):
+                with self.subTest(field=field, extra=extra):
+                    with self.assertRaises(SystemExit) as ctx:
+                        script.main(self.argv(*extra))
+                    self.assertIn(key, str(ctx.exception))
+
+    def test_metrics_only_without_the_artifacts_checks_the_rest_and_says_so(self):
+        script.main(self.argv())
+        for name in ("bm25.pkl", "dense.index", "legal_chunks.parquet"):
+            (self.artifacts / name).unlink()
+        script.main(self.argv("--metrics-only"))
+        metrics = json.loads((self.out / "retrieval_metrics.json").read_text(encoding="utf-8"))
+        self.assertFalse(metrics["run_identity"]["artifacts_verified"])
+        self.assertIn("not re-checked", (self.out / "retrieval_metrics.md").read_text(encoding="utf-8"))
+        other_bench = write_json(self.dir / "other.json", [question("1", gold_cnrs=["X"])])
+        with self.assertRaises(SystemExit) as ctx:  # the checks that can still be made are made
+            script.main(["--benchmark", str(other_bench)] + self.argv("--metrics-only")[2:])
+        self.assertIn("benchmark_sha256", str(ctx.exception))
+
+    def test_a_normal_run_without_the_artifacts_stops_before_loading_anything(self):
+        for name in ("bm25.pkl",):
+            (self.artifacts / name).unlink()
+        with self.assertRaises(SystemExit) as ctx:
+            script.main(self.argv())
+        self.assertIn("Missing artifacts", str(ctx.exception))
+        self.assertFalse((self.out / "retrieval_run_config.json").exists())
 
 
 if __name__ == "__main__":

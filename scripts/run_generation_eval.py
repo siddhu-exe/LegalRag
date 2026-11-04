@@ -34,6 +34,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import random
 import sys
@@ -60,9 +61,12 @@ from legalrag.evaluation.judge import (  # noqa: E402
 )
 from legalrag.evaluation.runtime import (  # noqa: E402
     build_cost_line,
+    check_run_config,
     confirm_or_abort,
     ensure_run_config,
     format_cost_estimate,
+    sha256_file,
+    sha256_text,
 )
 from legalrag.evaluation.stats import kappa_interval, percent_agreement  # noqa: E402
 from legalrag.generation.client import GenerationError  # noqa: E402
@@ -366,6 +370,42 @@ def build_clients(args: argparse.Namespace) -> tuple:
     return generator, LLMJudge(judge_client, args.generator_model, args.question_model)
 
 
+def _source_or_text(function: Any, fallback: str) -> str:
+    try:
+        return inspect.getsource(function)
+    except (OSError, TypeError):  # frozen or compiled install: fall back to the constants alone
+        return fallback
+
+
+def run_identity(args: argparse.Namespace) -> Dict[str, Any]:
+    """What produced the saved items. Any change here means resumed or re-scored items would not match.
+
+    The retrieval results file is hashed (it carries the passages the generator saw, and so the
+    artifacts behind them), as are both prompts (system text plus the template that builds the user
+    message). The generator and judge model names are compared exactly.
+    """
+    return {
+        "benchmark_sha256": file_sha256(args.benchmark),
+        "retrieval_results_sha256": sha256_file(args.retrieval_results),
+        "system": args.system,
+        "generator_model": args.generator_model,
+        "judge_model": args.judge_model,
+        "generator_prompt_sha256": sha256_text(SYSTEM_PROMPT + _source_or_text(build_rag_prompt, "")),
+        "judge_prompt_sha256": sha256_text(JUDGE_SYSTEM_PROMPT + _source_or_text(build_judge_prompt, "")),
+    }
+
+
+def retrieval_provenance(retrieval_results: Path) -> Optional[Dict[str, Any]]:
+    """The saved settings of the retrieval run beside the results file, kept for provenance only."""
+    sibling = Path(retrieval_results).with_name("retrieval_run_config.json")
+    if not sibling.exists():
+        return None
+    try:
+        return json.loads(sibling.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+
 def main(argv: Optional[Sequence[str]] = None, clients: Optional[tuple] = None) -> None:
     args = parse_args(argv)
     args.generator_model = resolve_generator_model(args)
@@ -375,6 +415,11 @@ def main(argv: Optional[Sequence[str]] = None, clients: Optional[tuple] = None) 
     out = args.out_dir
     out.mkdir(parents=True, exist_ok=True)
     checkpoint = JsonlCheckpoint(out / "generation_per_item.jsonl")
+
+    # The same read-only check runs with and without --metrics-only, before any estimate or call.
+    identity = run_identity(args)
+    config_path = out / "generation_run_config.json"
+    check_run_config(config_path, identity, force=args.force_resume, require_existing=args.metrics_only)
 
     if not args.metrics_only:
         usable = [i for i in items if i["question_id"] in retrievals]
@@ -399,13 +444,9 @@ def main(argv: Optional[Sequence[str]] = None, clients: Optional[tuple] = None) 
             return
         # Checked even when nothing is left to run, so old results are never relabelled with new models.
         ensure_run_config(
-            out / "generation_run_config.json",
-            {
-                "benchmark_sha256": file_sha256(args.benchmark),
-                "system": args.system,
-                "generator_model": args.generator_model,
-                "judge_model": args.judge_model,
-            },
+            config_path,
+            {**identity, "retrieval_run_config": retrieval_provenance(args.retrieval_results)},
+            keys=list(identity),
             force=args.force_resume,
         )
         if todo:
@@ -441,7 +482,9 @@ def main(argv: Optional[Sequence[str]] = None, clients: Optional[tuple] = None) 
             "judge_model": ", ".join(judges),
             "question_model": args.question_model,
             "independence_warnings": warnings,
-            "benchmark_sha256": file_sha256(args.benchmark),
+            "identity": identity,
+            "check_skipped_by_force_resume": bool(args.force_resume),
+            "benchmark_sha256": identity["benchmark_sha256"],
             "n_resamples": args.n_resamples,
             "seed": args.seed,
         },

@@ -9,6 +9,9 @@ from legalrag.evaluation.runtime import (
     CostLine,
     JsonlCheckpoint,
     build_cost_line,
+    check_run_config,
+    sha256_file,
+    sha256_text,
     confirm_or_abort,
     ensure_run_config,
     estimate_tokens,
@@ -226,3 +229,51 @@ class TestCheckpointCrashSafety(unittest.TestCase):
             self.assertEqual(checkpoint.records, {})
             checkpoint.append({"item_id": "q1", "status": "ok"})
             self.assertEqual(set(JsonlCheckpoint(checkpoint.path).records), {"q1"})
+
+
+class TestRunConfigGuards(unittest.TestCase):
+    def test_check_is_read_only_and_reports_whether_a_config_existed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "out" / "run_config.json"
+            self.assertFalse(check_run_config(path, {"judge_model": "a"}))
+            self.assertFalse(path.parent.exists())  # nothing was created
+            ensure_run_config(path, {"judge_model": "a"})
+            self.assertTrue(check_run_config(path, {"judge_model": "a"}))
+
+    def test_require_existing_refuses_results_of_unknown_origin(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run_config.json"
+            with self.assertRaises(SystemExit) as ctx:
+                check_run_config(path, {"x": 1}, require_existing=True)
+            self.assertIn("No saved settings", str(ctx.exception))
+            self.assertFalse(check_run_config(path, {"x": 1}, force=True, require_existing=True))
+
+    def test_nested_values_such_as_artifact_hashes_are_compared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run_config.json"
+            ensure_run_config(path, {"artifacts": {"a": "1", "b": "2"}})
+            with self.assertRaises(SystemExit) as ctx:
+                check_run_config(path, {"artifacts": {"a": "1", "b": "CHANGED"}})
+            self.assertIn("artifacts", str(ctx.exception))
+
+    def test_only_the_named_keys_are_compared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run_config.json"
+            ensure_run_config(path, {"model": "m", "note": "first"})
+            self.assertTrue(check_run_config(path, {"model": "m", "note": "second"}, keys=["model"]))
+
+    def test_config_is_written_through_a_temporary_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run_config.json"
+            ensure_run_config(path, {"model": "m"})
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], ["run_config.json"])
+
+    def test_streamed_hash_matches_hashlib_for_files_larger_than_one_block(self):
+        import hashlib
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "big.bin"
+            data = bytes(range(256)) * 5000
+            path.write_bytes(data)
+            self.assertEqual(sha256_file(path, chunk_bytes=1000), hashlib.sha256(data).hexdigest())
+            self.assertEqual(sha256_text("धारा"), hashlib.sha256("धारा".encode("utf-8")).hexdigest())
