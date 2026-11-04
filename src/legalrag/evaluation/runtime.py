@@ -108,8 +108,16 @@ def confirm_or_abort(
 class JsonlCheckpoint:
     """Append-only JSONL results file. Each item is written and flushed as soon as it is done.
 
-    If an id appears more than once (for example after ``--retry-errors``), the last record
-    wins. A last line cut off by a crash is ignored and counted in ``skipped_lines``.
+    Crash safety:
+      * The file is read as bytes, so a last line cut in the middle of a UTF-8 character cannot
+        raise. Any line that is not valid UTF-8 and valid JSON is skipped and counted in
+        ``skipped_lines``.
+      * A last line with no newline is kept only if it is a complete record; a cut-off one is
+        dropped. Reading never changes the file. The first ``append`` repairs the tail (removes
+        the cut-off bytes, or adds the missing newline) so a new record is never glued onto an
+        old partial line.
+
+    If an id appears more than once (for example after ``--retry-errors``), the last record wins.
     """
 
     def __init__(self, path: Path, id_field: str = "item_id"):
@@ -117,17 +125,44 @@ class JsonlCheckpoint:
         self.id_field = id_field
         self.records: Dict[str, Dict[str, Any]] = {}
         self.skipped_lines = 0
+        self._truncate_to: Optional[int] = None  # byte offset where a cut-off last line starts
+        self._add_newline = False  # last line is a complete record that lacks its newline
         if self.path.exists():
-            with self.path.open("r", encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        record = json.loads(line)
-                        self.records[str(record[self.id_field])] = record
-                    except (json.JSONDecodeError, KeyError, TypeError):
-                        self.skipped_lines += 1
+            self._load(self.path.read_bytes())
+
+    def _parse(self, raw: bytes) -> Optional[Dict[str, Any]]:
+        try:
+            record = json.loads(raw.decode("utf-8"))
+            if not isinstance(record, dict):
+                return None
+            record[self.id_field]  # noqa: B018 - a record without an id is unusable
+            return record
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError):
+            return None
+
+    def _load(self, data: bytes) -> None:
+        offset = 0
+        pieces = data.split(b"\n")
+        tail = pieces.pop()  # whatever follows the last newline (b"" when the file ends cleanly)
+        for piece in pieces:
+            offset += len(piece) + 1
+            if not piece.strip():
+                continue
+            record = self._parse(piece)
+            if record is None:
+                self.skipped_lines += 1
+            else:
+                self.records[str(record[self.id_field])] = record
+        if tail.strip():
+            record = self._parse(tail)
+            if record is None:
+                self.skipped_lines += 1
+                self._truncate_to = offset
+            else:
+                self.records[str(record[self.id_field])] = record
+                self._add_newline = True
+        elif tail:
+            self._truncate_to = offset  # stray whitespace after the last newline
 
     def is_done(self, item_id: str, retry_statuses: Iterable[str] = ()) -> bool:
         record = self.records.get(str(item_id))
@@ -135,11 +170,27 @@ class JsonlCheckpoint:
             return False
         return record.get("status") not in set(retry_statuses)
 
+    def _repair_tail(self) -> None:
+        if self._truncate_to is None and not self._add_newline:
+            return
+        with self.path.open("r+b") as handle:
+            if self._truncate_to is not None:
+                handle.truncate(self._truncate_to)
+            else:
+                handle.seek(0, os.SEEK_END)
+                handle.write(b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        self._truncate_to = None
+        self._add_newline = False
+
     def append(self, record: Mapping[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(record, ensure_ascii=False)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
+        line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+        if self.path.exists():
+            self._repair_tail()
+        with self.path.open("ab") as handle:
+            handle.write(line)  # one write call per record
             handle.flush()
             os.fsync(handle.fileno())
         self.records[str(record[self.id_field])] = dict(record)

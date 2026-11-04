@@ -128,3 +128,101 @@ class TestRunConfig(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCheckpointCrashSafety(unittest.TestCase):
+    """A run killed mid-write must resume cleanly (review fix 2)."""
+
+    def line(self, item_id, **extra):
+        return (json.dumps({"item_id": item_id, "status": "ok", **extra}, ensure_ascii=False) + "\n").encode("utf-8")
+
+    def write(self, path, data: bytes):
+        path.write_bytes(data)
+        return path
+
+    def assert_every_line_valid(self, path):
+        data = path.read_bytes()
+        self.assertTrue(data.endswith(b"\n") or not data)
+        for raw in data.split(b"\n")[:-1]:
+            json.loads(raw.decode("utf-8"))  # raises if any line is cut off or glued
+
+    def test_last_line_cut_mid_record_is_ignored_and_the_next_append_is_not_lost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(Path(tmp) / "items.jsonl", self.line("q1") + b'{"item_id": "q2", "sta')
+            checkpoint = JsonlCheckpoint(path)
+            self.assertEqual(set(checkpoint.records), {"q1"})
+            self.assertEqual(checkpoint.skipped_lines, 1)
+            checkpoint.append({"item_id": "q2", "status": "ok"})
+            self.assert_every_line_valid(path)
+            again = JsonlCheckpoint(path)
+            self.assertEqual(set(again.records), {"q1", "q2"})  # the old code lost q2 here
+            self.assertEqual(again.skipped_lines, 0)
+
+    def test_last_line_cut_inside_a_multibyte_character_does_not_raise(self):
+        complete = self.line("q1", answer="धारा 438")
+        partial = self.line("q2", answer="धारा 438")
+        cut = partial[: partial.index("र".encode("utf-8")) + 1]  # one byte into a 3-byte character
+        with self.assertRaises(UnicodeDecodeError):
+            cut.decode("utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(Path(tmp) / "items.jsonl", complete + cut)
+            checkpoint = JsonlCheckpoint(path)
+            self.assertEqual(set(checkpoint.records), {"q1"})
+            self.assertEqual(checkpoint.records["q1"]["answer"], "धारा 438")
+            checkpoint.append({"item_id": "q2", "status": "ok", "answer": "ok"})
+            self.assert_every_line_valid(path)
+            self.assertEqual(set(JsonlCheckpoint(path).records), {"q1", "q2"})
+
+    def test_complete_last_record_without_a_newline_is_kept_and_terminated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(Path(tmp) / "items.jsonl", self.line("q1") + self.line("q2").rstrip(b"\n"))
+            checkpoint = JsonlCheckpoint(path)
+            self.assertEqual(set(checkpoint.records), {"q1", "q2"})
+            self.assertEqual(checkpoint.skipped_lines, 0)
+            checkpoint.append({"item_id": "q3", "status": "ok"})
+            self.assert_every_line_valid(path)
+            self.assertEqual(set(JsonlCheckpoint(path).records), {"q1", "q2", "q3"})
+
+    def test_reading_alone_never_modifies_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            damaged = self.line("q1") + b'{"item_id": "q2", "sta'
+            path = self.write(Path(tmp) / "items.jsonl", damaged)
+            JsonlCheckpoint(path)
+            self.assertEqual(path.read_bytes(), damaged)
+
+    def test_invalid_lines_in_the_middle_are_skipped_not_fatal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = self.line("q1") + b"\xff\xfe not utf8\n" + b"[1, 2]\n" + b'{"no_id": 1}\n' + b"\n" + self.line("q2")
+            path = self.write(Path(tmp) / "items.jsonl", data)
+            checkpoint = JsonlCheckpoint(path)
+            self.assertEqual(set(checkpoint.records), {"q1", "q2"})
+            self.assertEqual(checkpoint.skipped_lines, 3)
+
+    def test_only_trailing_whitespace_after_the_last_newline_is_cleaned_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write(Path(tmp) / "items.jsonl", self.line("q1") + b"  ")
+            checkpoint = JsonlCheckpoint(path)
+            checkpoint.append({"item_id": "q2", "status": "ok"})
+            self.assert_every_line_valid(path)
+            self.assertEqual(set(JsonlCheckpoint(path).records), {"q1", "q2"})
+
+    def test_repeated_crashes_and_resumes_never_corrupt_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "items.jsonl"
+            expected = set()
+            for round_ in range(5):
+                checkpoint = JsonlCheckpoint(path)
+                for i in range(3):
+                    item = f"r{round_}-{i}"
+                    checkpoint.append({"item_id": item, "status": "ok", "answer": "धारा"})
+                    expected.add(item)
+                with path.open("ab") as handle:  # a crash in the middle of the next write
+                    handle.write(self.line("lost", answer="धारा")[:-9])
+            self.assertEqual(set(JsonlCheckpoint(path).records), expected)
+
+    def test_missing_file_still_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = JsonlCheckpoint(Path(tmp) / "new" / "items.jsonl")
+            self.assertEqual(checkpoint.records, {})
+            checkpoint.append({"item_id": "q1", "status": "ok"})
+            self.assertEqual(set(JsonlCheckpoint(checkpoint.path).records), {"q1"})
