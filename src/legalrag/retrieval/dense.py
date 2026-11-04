@@ -51,10 +51,14 @@ class DenseRetriever:
         chunk_ids: Optional[List[str]] = None,
         device: Optional[str] = None,
         query_instruction: str = DEFAULT_QUERY_INSTRUCTION,
+        embedder: Optional[Any] = None,
     ):
         self.model_name = model_name
         self.device = device
-        self._model: Optional[Any] = None
+        # ``embedder`` may be any object with SentenceTransformer's ``encode`` (and, for warmup,
+        # ``get_sentence_embedding_dimension``), for example ``OnnxEmbedder``. When it is given,
+        # neither PyTorch nor sentence-transformers is needed to answer queries.
+        self._model: Optional[Any] = embedder
         self.index = index
         self.chunk_ids = chunk_ids or []
         self.query_instruction = query_instruction
@@ -76,7 +80,9 @@ class DenseRetriever:
 
     @property
     def model(self) -> Any:
-        """Lazy load SentenceTransformer model."""
+        """Lazy load SentenceTransformer model (or return the injected embedder)."""
+        if self._model is not None:
+            return self._model
         if SentenceTransformer is None:
             raise ImportError(
                 "sentence-transformers is required for DenseRetriever. "
@@ -202,20 +208,32 @@ class DenseRetriever:
         chunk_ids: List[str],
         model_name: str = "BAAI/bge-base-en-v1.5",
         device: Optional[str] = None,
+        nprobe: Optional[int] = None,
+        mmap: bool = False,
+        embedder: Optional[Any] = None,
     ) -> "DenseRetriever":
         """
         Loads a FAISS index from disk and attaches chunk ID mappings.
+
+        Any FAISS index type is accepted (the v1 flat index, or an approximate one from
+        ``faiss_builders``). ``nprobe`` applies to inverted-file indexes only; ``mmap`` maps the
+        file instead of reading it into memory. Both default to the v1 behaviour.
 
         Raises:
             ValueError: if the index vector count does not match ``len(chunk_ids)``.
         """
         if faiss is None:
             raise ImportError("faiss is required. Install it with: pip install faiss-cpu")
-        index = faiss.read_index(str(index_path))
+        mmap_flag = getattr(faiss, "IO_FLAG_MMAP", None) if mmap else None
+        index = faiss.read_index(str(index_path), mmap_flag) if mmap_flag else faiss.read_index(str(index_path))
+        if nprobe is not None:
+            from legalrag.retrieval.faiss_builders import set_nprobe
+
+            set_nprobe(index, nprobe)
         ntotal = int(getattr(index, "ntotal", 0))
         if ntotal != len(chunk_ids):
             raise ValueError(
                 f"FAISS index '{index_path}' contains {ntotal} vectors but {len(chunk_ids)} "
                 "chunk_ids were supplied; dense.index and legal_chunks.parquet are inconsistent."
             )
-        return cls(model_name=model_name, index=index, chunk_ids=chunk_ids, device=device)
+        return cls(model_name=model_name, index=index, chunk_ids=chunk_ids, device=device, embedder=embedder)

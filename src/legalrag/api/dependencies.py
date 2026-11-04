@@ -10,7 +10,7 @@ across dual runtime environments:
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Any, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -18,6 +18,9 @@ from legalrag.api.config import Settings, get_settings
 from legalrag.retrieval.bm25 import BM25Retriever
 from legalrag.retrieval.dense import DenseRetriever
 from legalrag.retrieval.reranker import CrossEncoderReranker
+from legalrag.retrieval.bm25s_backend import Bm25sRetriever
+from legalrag.retrieval.chunk_store import DataFrameChunkSource
+from legalrag.retrieval.onnx_models import OnnxReranker
 from legalrag.generation.client import GenerationResult, LegalGenerationClient
 
 logger = logging.getLogger(__name__)
@@ -228,6 +231,14 @@ class PipelineComponents:
     chunks: pd.DataFrame
     generator: Optional[Any] = None
     environment: Literal["local_stub", "production"] = "local_stub"
+    #: Optional on-disk chunk store (``SqliteChunkStore``). When set, chunk rows are fetched from it
+    #: by id and ``chunks`` is an empty frame; when None (the v1 default) ``chunks`` is used.
+    chunk_store: Optional[Any] = None
+
+    def get_chunks(self, chunk_ids: Any) -> Dict[str, Dict[str, Any]]:
+        """Rows for the given chunk ids (text, cnr, court_code, ...), from whichever store is configured."""
+        source = self.chunk_store if self.chunk_store is not None else DataFrameChunkSource(self.chunks)
+        return source.get_many(list(chunk_ids))
 
 
 # ---------------------------------------------------------------------------
@@ -249,8 +260,39 @@ def load_stub_pipeline() -> PipelineComponents:
     )
 
 
+def _validate_store_chunk_id_resolution(pipeline: PipelineComponents, sample: int = 1000) -> None:
+    """For the on-disk chunk store: ids line up by count, and a spread of them resolve to rows.
+
+    Checking every id would read the whole database at startup, so this checks the sizes, the first
+    and last ids, and a seeded random sample.
+    """
+    import random
+
+    store = pipeline.chunk_store
+    for name, retriever in (("BM25", pipeline.bm25), ("Dense", pipeline.dense)):
+        ids = getattr(retriever, "chunk_ids", None)
+        if ids is None or not len(ids):
+            raise ValueError(f"{name} retriever exposes no chunk_ids.")
+        if len(ids) != len(store):
+            raise ValueError(
+                f"{name} retriever maps {len(ids)} chunk_ids but the chunk store holds {len(store)} rows; "
+                "the index and the store were built from different corpora."
+            )
+        rng = random.Random(0)
+        picks = {0, len(ids) - 1, *(rng.randrange(len(ids)) for _ in range(min(sample, len(ids))))}
+        wanted = [ids[i] for i in sorted(picks)]
+        missing = [cid for cid in wanted if cid not in store.get_many(wanted)]
+        if missing:
+            raise ValueError(
+                f"{name} retriever references chunk_id(s) absent from the chunk store (first: {missing[0]!r})."
+            )
+
+
 def _validate_chunk_id_resolution(pipeline: PipelineComponents) -> None:
     """Ensures every retrieval chunk ID actually resolves against legal_chunks.parquet."""
+    if pipeline.chunk_store is not None:
+        _validate_store_chunk_id_resolution(pipeline)
+        return
     chunk_ids = pipeline.chunks["chunk_id"]
     if chunk_ids.isna().any():
         raise ValueError("legal_chunks.parquet contains null chunk_id values.")
@@ -285,11 +327,11 @@ def validate_pipeline_components(pipeline: PipelineComponents, require_generator
     Raises:
         ValueError: when a retrieval component cannot serve queries.
     """
-    if isinstance(pipeline.bm25, BM25Retriever):
+    if isinstance(pipeline.bm25, (BM25Retriever, Bm25sRetriever)):
         pipeline.bm25.validate()
     if isinstance(pipeline.dense, DenseRetriever):
         pipeline.dense.validate()
-    if isinstance(pipeline.reranker, CrossEncoderReranker):
+    if isinstance(pipeline.reranker, (CrossEncoderReranker, OnnxReranker)):
         pipeline.reranker.validate()
 
     if pipeline.environment == "production":
@@ -298,19 +340,61 @@ def validate_pipeline_components(pipeline: PipelineComponents, require_generator
         _validate_chunk_id_resolution(pipeline)
 
 
-def load_production_pipeline(settings: Settings) -> PipelineComponents:
-    """
-    Loads full production pipeline components from verified disk artifacts.
-    Raises explicit FileNotFoundError if any artifact is missing.
-    """
-    missing_artifacts = []
-    if not settings.bm25_path.is_file():
-        missing_artifacts.append(f"BM25 index artifact missing at: {settings.bm25_path}")
-    if not settings.dense_index_path.is_file():
-        missing_artifacts.append(f"Dense FAISS index artifact missing at: {settings.dense_index_path}")
-    if not settings.chunks_path.is_file():
-        missing_artifacts.append(f"Chunks parquet artifact missing at: {settings.chunks_path}")
+def _missing_artifacts(settings: Settings) -> List[str]:
+    """Plain-language list of required artifacts that are not on disk, for the configured backends."""
+    from legalrag.retrieval.bm25s_backend import METADATA_FILE
 
+    missing: List[str] = []
+    if settings.bm25_backend == "bm25s":
+        if not (settings.bm25s_dir / METADATA_FILE).is_file():
+            missing.append(f"bm25s index missing at: {settings.bm25s_dir}")
+    elif not settings.bm25_path.is_file():
+        missing.append(f"BM25 index artifact missing at: {settings.bm25_path}")
+    if not settings.dense_index_path.is_file():
+        missing.append(f"Dense FAISS index artifact missing at: {settings.dense_index_path}")
+    if settings.chunk_store == "sqlite":
+        if not settings.chunk_store_path.is_file():
+            missing.append(f"SQLite chunk store missing at: {settings.chunk_store_path}")
+        if not settings.chunk_store_path.with_name("chunk_ids.npy").is_file():
+            missing.append(f"Chunk id array missing at: {settings.chunk_store_path.with_name('chunk_ids.npy')}")
+    elif not settings.chunks_path.is_file():
+        missing.append(f"Chunks parquet artifact missing at: {settings.chunks_path}")
+    if settings.embedder_backend == "onnx" and not settings.onnx_embedder_dir.is_dir():
+        missing.append(f"ONNX embedder directory missing at: {settings.onnx_embedder_dir}")
+    if settings.reranker_backend == "onnx" and not settings.onnx_reranker_dir.is_dir():
+        missing.append(f"ONNX reranker directory missing at: {settings.onnx_reranker_dir}")
+    return missing
+
+
+def _check_ids_agree(first: Any, second: Any, first_name: str, second_name: str, sample: int = 1000) -> None:
+    """Two id sequences must line up: same length, same first and last id, and a seeded random sample equal."""
+    import random
+
+    if len(first) != len(second):
+        raise ValueError(
+            f"{first_name} has {len(first)} chunk ids but {second_name} has {len(second)}; they were built from different corpora."
+        )
+    if not len(first):
+        return
+    rng = random.Random(0)
+    picks = sorted({0, len(first) - 1, *(rng.randrange(len(first)) for _ in range(min(sample, len(first))))})
+    for position in picks:
+        if first[position] != second[position]:
+            raise ValueError(
+                f"{first_name} and {second_name} disagree at position {position} "
+                f"({first[position]!r} vs {second[position]!r}); the indexes do not match."
+            )
+
+
+def load_retrieval_components(settings: Settings) -> PipelineComponents:
+    """
+    Loads the retrieval parts (BM25, dense index, reranker, chunk text) with no generation client.
+
+    The backends follow the settings flags; the defaults load exactly the v1 artifacts. Used by
+    ``load_production_pipeline`` and by the retrieval evaluation, which needs no Groq key.
+    Raises FileNotFoundError if any required artifact is missing.
+    """
+    missing_artifacts = _missing_artifacts(settings)
     if missing_artifacts:
         raise FileNotFoundError(
             "Production pipeline initialization failed due to missing required artifacts:\n"
@@ -318,49 +402,85 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
             + "\nPlease run 'scripts/download_artifacts.py' or verify configured artifact paths."
         )
 
-    logger.info("Loading chunk metadata parquet from %s", settings.chunks_path)
-    chunks_df = pd.read_parquet(settings.chunks_path)
-    if "chunk_id" not in chunks_df.columns:
-        raise ValueError(
-            f"Chunks parquet at '{settings.chunks_path}' is missing required 'chunk_id' column."
-        )
-    chunk_ids = chunks_df["chunk_id"].tolist()
+    chunk_store = None
+    if settings.chunk_store == "sqlite":
+        from legalrag.retrieval.chunk_store import SqliteChunkStore
 
-    logger.info("Loading BM25 index from %s", settings.bm25_path)
-    bm25 = BM25Retriever.load(settings.bm25_path)
-    if not bm25.chunk_ids and chunk_ids:
-        logger.warning(
-            "BM25 artifact carries no chunk_ids; falling back to legal_chunks.parquet ordering."
-        )
-        bm25.chunk_ids = list(chunk_ids)
+        logger.info("Opening SQLite chunk store at %s", settings.chunk_store_path)
+        chunk_store = SqliteChunkStore(settings.chunk_store_path)
+        chunk_ids: Any = chunk_store.load_chunk_ids(mmap=True)
+        chunks_df = pd.DataFrame()
+    else:
+        logger.info("Loading chunk metadata parquet from %s", settings.chunks_path)
+        chunks_df = pd.read_parquet(settings.chunks_path)
+        if "chunk_id" not in chunks_df.columns:
+            raise ValueError(
+                f"Chunks parquet at '{settings.chunks_path}' is missing required 'chunk_id' column."
+            )
+        chunk_ids = chunks_df["chunk_id"].tolist()
 
+    if settings.bm25_backend == "bm25s":
+        logger.info("Loading bm25s index from %s (mmap=%s)", settings.bm25s_dir, settings.bm25s_mmap)
+        bm25: Any = Bm25sRetriever.load(settings.bm25s_dir, mmap=settings.bm25s_mmap)
+        _check_ids_agree(bm25.chunk_ids, chunk_ids, "the bm25s index", "the chunk table")
+    else:
+        logger.info("Loading BM25 index from %s", settings.bm25_path)
+        bm25 = BM25Retriever.load(settings.bm25_path)
+        if not bm25.chunk_ids and len(chunk_ids):
+            logger.warning(
+                "BM25 artifact carries no chunk_ids; falling back to legal_chunks.parquet ordering."
+            )
+            bm25.chunk_ids = list(chunk_ids)
+
+    embedder = None
+    if settings.embedder_backend == "onnx":
+        from legalrag.retrieval.onnx_models import OnnxEmbedder
+
+        logger.info("Loading ONNX embedder from %s", settings.onnx_embedder_dir)
+        embedder = OnnxEmbedder.load(settings.onnx_embedder_dir, settings.onnx_threads)
     logger.info("Loading Dense FAISS index from %s", settings.dense_index_path)
     dense = DenseRetriever.load_index(
         index_path=settings.dense_index_path,
         chunk_ids=chunk_ids,
         model_name=settings.embedding_model_name,
+        nprobe=settings.dense_nprobe,
+        mmap=settings.dense_mmap,
+        embedder=embedder,
     )
 
-    logger.info("Initializing Cross-Encoder reranker (%s)", settings.reranker_model_name)
-    reranker = CrossEncoderReranker(
-        model_name=settings.reranker_model_name,
-    )
+    if settings.reranker_backend == "onnx":
+        logger.info("Loading ONNX reranker from %s", settings.onnx_reranker_dir)
+        reranker: Any = OnnxReranker.load(settings.onnx_reranker_dir, settings.onnx_threads)
+    else:
+        logger.info("Initializing Cross-Encoder reranker (%s)", settings.reranker_model_name)
+        reranker = CrossEncoderReranker(
+            model_name=settings.reranker_model_name,
+        )
 
-    logger.info("Initializing Groq generation client (%s)", settings.groq_model_name)
-    generator = LegalGenerationClient(
-        api_key=settings.groq_api_key,
-        model_name=settings.groq_model_name,
-        request_timeout=settings.groq_request_timeout,
-        max_retries=settings.groq_max_retries,
-    )
-
-    pipeline = PipelineComponents(
+    return PipelineComponents(
         bm25=bm25,
         dense=dense,
         reranker=reranker,
         chunks=chunks_df,
-        generator=generator,
+        generator=None,
         environment="production",
+        chunk_store=chunk_store,
+    )
+
+
+def load_production_pipeline(settings: Settings) -> PipelineComponents:
+    """
+    Loads full production pipeline components from verified disk artifacts.
+    Raises explicit FileNotFoundError if any artifact is missing.
+    """
+    pipeline = load_retrieval_components(settings)
+
+    logger.info("Initializing Groq generation client (%s)", settings.groq_model_name)
+    pipeline.generator = LegalGenerationClient(
+        api_key=settings.groq_api_key,
+        model_name=settings.groq_model_name,
+        request_timeout=settings.groq_request_timeout,
+        max_retries=settings.groq_max_retries,
     )
 
     # Fail closed at initialization if any retrieval component is not actually usable.
@@ -368,9 +488,9 @@ def load_production_pipeline(settings: Settings) -> PipelineComponents:
 
     if settings.model_warmup_enabled:
         logger.info("Warming up embedding model (%s)", settings.embedding_model_name)
-        dense.warmup()
+        pipeline.dense.warmup()
         logger.info("Warming up cross-encoder reranker (%s)", settings.reranker_model_name)
-        reranker.warmup()
+        pipeline.reranker.warmup()
 
     return pipeline
 

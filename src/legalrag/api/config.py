@@ -130,6 +130,50 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ------------------------------------------------------------------------------------------
+    # Low-memory retrieval parts (plan task C4). Every flag defaults to the v1 behaviour; a flag
+    # becomes the default only after the benchmark supports it (docs/IMPROVEMENT_PLAN.md rule 2).
+    # Paths are relative to ``artifact_dir``, so a v2 build is selected with ARTIFACT_DIR=artifacts/v2.
+    # ------------------------------------------------------------------------------------------
+    bm25_backend: Literal["rank_bm25", "bm25s"] = Field(
+        default="rank_bm25",
+        description="'rank_bm25' reads bm25.pkl (v1). 'bm25s' reads the memory-mapped index in bm25s/.",
+    )
+    bm25s_mmap: bool = Field(default=True, description="Memory-map the bm25s score arrays and chunk ids.")
+    chunk_store: Literal["parquet", "sqlite"] = Field(
+        default="parquet",
+        description="'parquet' loads legal_chunks.parquet into memory (v1). 'sqlite' reads chunks/chunks.sqlite on demand.",
+    )
+    dense_nprobe: Optional[int] = Field(
+        default=None, ge=1, description="Inverted lists visited per search (IVF indexes only)."
+    )
+    dense_mmap: bool = Field(default=False, description="Memory-map dense.index instead of reading it into memory.")
+    embedder_backend: Literal["torch", "onnx"] = Field(
+        default="torch", description="'onnx' runs onnx/embedder/ with onnxruntime and needs no PyTorch."
+    )
+    reranker_backend: Literal["torch", "onnx"] = Field(
+        default="torch", description="'onnx' runs onnx/reranker/ with onnxruntime and needs no PyTorch."
+    )
+    onnx_threads: Optional[int] = Field(default=None, ge=1, description="onnxruntime intra-op threads (default: library choice).")
+
+    @property
+    def bm25s_dir(self) -> Path:
+        """Directory holding the bm25s index written by scripts/build_retrieval_indexes_v2.py."""
+        return self.artifact_dir / "bm25s"
+
+    @property
+    def chunk_store_path(self) -> Path:
+        """SQLite chunk store; chunk_ids.npy sits beside it."""
+        return self.artifact_dir / "chunks" / "chunks.sqlite"
+
+    @property
+    def onnx_embedder_dir(self) -> Path:
+        return self.artifact_dir / "onnx" / "embedder"
+
+    @property
+    def onnx_reranker_dir(self) -> Path:
+        return self.artifact_dir / "onnx" / "reranker"
+
     @property
     def bm25_path(self) -> Path:
         """Filesystem path to the BM25 index pickle artifact."""

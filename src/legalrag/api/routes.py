@@ -139,9 +139,7 @@ def query_endpoint(
     chunk_dict: Dict[str, Dict[str, Any]] = {}
 
     try:
-        if not pipeline.chunks.empty and "chunk_id" in pipeline.chunks.columns:
-            subset_df = pipeline.chunks[pipeline.chunks["chunk_id"].isin(fused_ids)]
-            chunk_dict = subset_df.set_index("chunk_id").to_dict(orient="index")
+        chunk_dict = pipeline.get_chunks(fused_ids)
 
         candidates = [
             (cid, chunk_dict[cid].get("text", ""))
@@ -221,11 +219,8 @@ def query_endpoint(
             continue
 
         meta = chunk_dict.get(cid)
-        if meta is None and not pipeline.chunks.empty and "chunk_id" in pipeline.chunks.columns:
-            match = pipeline.chunks[pipeline.chunks["chunk_id"] == cid]
-            meta = match.iloc[0].to_dict() if not match.empty else {}
-        elif meta is None:
-            meta = {}
+        if meta is None:
+            meta = pipeline.get_chunks([cid]).get(cid, {})
 
         citations.append(
             Citation(

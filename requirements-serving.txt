@@ -1,0 +1,36 @@
+# Serving dependencies for the low-memory v2 stack (plan task C4). No PyTorch, no transformers,
+# no sentence-transformers: use with
+#   BM25_BACKEND=bm25s  CHUNK_STORE=sqlite  EMBEDDER_BACKEND=onnx  RERANKER_BACKEND=onnx
+# and an approximate dense.index (IVF-SQ8 or OPQ+IVF+PQ) from scripts/build_retrieval_indexes_v2.py.
+#
+# Install with:  pip install -r requirements-serving.txt && pip install --no-deps -e .
+# (the editable install must not pull requirements.txt, which lists torch and sentence-transformers)
+#
+# Building the indexes and exporting ONNX models needs the full requirements.txt
+# (torch, transformers, sentence-transformers); do that on your PC, not on the server.
+#
+# A server that still serves the v1 stack, or any flag left at its default (rank_bm25, parquet chunks,
+# torch embedder or reranker), needs requirements.txt instead.
+
+# Retrieval
+numpy>=1.26.3
+scipy>=1.11.4
+bm25s>=0.2.0
+faiss-cpu>=1.7.4
+onnxruntime>=1.17.0
+tokenizers>=0.15.0
+
+# API and generation
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+groq>=0.9.0
+httpx>=0.26.0
+sse-starlette>=1.8.0
+
+# Used at startup by the API module imports and artifact download
+pandas>=2.1.4
+pyarrow>=14.0.2
+huggingface_hub>=0.20.0
+tqdm>=4.66.1

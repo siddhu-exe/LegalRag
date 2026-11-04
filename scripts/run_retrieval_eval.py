@@ -80,16 +80,22 @@ DEFAULT_OUT_DIR = Path("results/eval_v2")
 
 
 class ChunkLookup:
-    """Fast chunk id -> text/cnr/metadata lookup over the chunk table."""
+    """Fast chunk id -> text/cnr/metadata lookup, from the in-memory table or the on-disk chunk store."""
 
     FIELDS = ("text", "cnr", "court_code", "decision_date")
 
-    def __init__(self, chunks: Any):
-        columns = [c for c in self.FIELDS if c in chunks.columns]
-        self._frame = chunks.set_index("chunk_id")[columns]
+    def __init__(self, pipeline: Any):
+        self._store = getattr(pipeline, "chunk_store", None)
+        self._frame = None
+        if self._store is None:
+            chunks = pipeline.chunks
+            columns = [c for c in self.FIELDS if c in chunks.columns]
+            self._frame = chunks.set_index("chunk_id")[columns]  # indexed once: much faster than isin per query
 
     def get_many(self, chunk_ids: Sequence[str]) -> Dict[str, Dict[str, Any]]:
         wanted = list(dict.fromkeys(chunk_ids))
+        if self._store is not None:
+            return {cid: {f: row.get(f) for f in self.FIELDS} for cid, row in self._store.get_many(wanted).items()}
         present = self._frame.index.intersection(wanted)
         return self._frame.loc[present].to_dict(orient="index")
 
@@ -145,31 +151,17 @@ def load_pipeline(mode: str) -> Tuple[Any, ChunkLookup]:
 
         pipeline = load_stub_pipeline()
     else:
-        import pandas as pd
-
         from legalrag.api.config import get_settings
-        from legalrag.api.dependencies import PipelineComponents, validate_pipeline_components
-        from legalrag.retrieval.bm25 import BM25Retriever
-        from legalrag.retrieval.dense import DenseRetriever
-        from legalrag.retrieval.reranker import CrossEncoderReranker
+        from legalrag.api.dependencies import load_retrieval_components, validate_pipeline_components
 
-        settings = get_settings()
-        missing = [p for p in (settings.bm25_path, settings.dense_index_path, settings.chunks_path) if not p.is_file()]
-        if missing:
-            raise SystemExit("Missing artifacts: " + ", ".join(str(p) for p in missing))
-        chunks = pd.read_parquet(settings.chunks_path)
-        bm25 = BM25Retriever.load(settings.bm25_path)
-        if not bm25.chunk_ids:
-            bm25.chunk_ids = chunks["chunk_id"].tolist()
-        dense = DenseRetriever.load_index(
-            index_path=settings.dense_index_path,
-            chunk_ids=chunks["chunk_id"].tolist(),
-            model_name=settings.embedding_model_name,
-        )
-        reranker = CrossEncoderReranker(model_name=settings.reranker_model_name)
-        pipeline = PipelineComponents(bm25, dense, reranker, chunks, generator=None, environment="production")
-        validate_pipeline_components(pipeline, require_generator=False)  # retrieval needs no Groq key
-    return pipeline, ChunkLookup(pipeline.chunks)
+        # The same loader the API uses, so the backend flags (bm25s, sqlite store, ONNX, IVF index)
+        # apply here too. It builds no generation client, so no Groq key is needed.
+        try:
+            pipeline = load_retrieval_components(get_settings())
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
+        validate_pipeline_components(pipeline, require_generator=False)
+    return pipeline, ChunkLookup(pipeline)
 
 
 def run_retrieval(
