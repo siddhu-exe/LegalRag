@@ -297,6 +297,16 @@ class TestMain(unittest.TestCase):
         with self.assertRaises(SystemExit):
             script.main(argv + ["--retry-errors"], clients=(generator, judge))
 
+    def test_report_shows_the_citation_share_next_to_the_in_context_rate(self):
+        flat = StubGenerator(lambda n, p: "Bail may be granted." if n % 2 else "Held [Chunk ID: c0].")
+        script.main(self.argv("--yes"), clients=self.clients(flat))
+        metrics = json.loads((self.out / "generation_metrics.json").read_text(encoding="utf-8"))["summary"]["metrics"]
+        self.assertEqual(metrics["answers_with_citations_rate"]["n"], 6)
+        self.assertEqual(metrics["answers_with_citations_rate"]["estimate"], 0.5)
+        self.assertEqual(metrics["citations_in_context_rate"]["n"], 3)
+        text = (self.out / "generation_metrics.md").read_text(encoding="utf-8")
+        self.assertIn("answers_with_citations_rate", text)
+
     def test_metrics_only_checks_the_models_too(self):
         script.main(self.argv("--yes"), clients=self.clients())
         other_judge = self.argv("--metrics-only")

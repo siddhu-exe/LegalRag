@@ -285,7 +285,13 @@ def render_markdown(result: Dict[str, Any]) -> str:
     lines += ["## Metrics", "", "| Metric | Value [95% CI] | n |", "|---|---|---|"]
     for name, interval in summary["metrics"].items():
         lines.append(f"| {name} | {_fmt(interval)} | {interval['n']} |")
-    lines += ["", "Quality metrics use judged answers only. `refusal_rate` is over all items without a generation error.", ""]
+    lines += [
+        "",
+        "Quality metrics use judged answers only. `refusal_rate` is over all items without a generation error. "
+        "`answers_with_citations_rate` is over answered questions (not refused, no generation error). "
+        "`citations_in_context_rate` is over the answers that cite something, so read it with the previous rate.",
+        "",
+    ]
     labels = summary["failure_labels"]
     lines += [
         f"## First-pass failure labels (n = {labels['denominator']})",

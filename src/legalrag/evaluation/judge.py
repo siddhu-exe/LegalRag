@@ -418,7 +418,16 @@ def summarize_generation(
         [1.0 if r["scores"]["hallucination"] else 0.0 for r in judged], judged_groups
     )
 
-    with_cites = [r for r in answered if r.get("citations_in_context") is not None]
+    def has_citation(record: Dict[str, Any]) -> bool:
+        return bool(record.get("cited_chunk_ids")) or record.get("citations_in_context") is not None
+
+    # Denominator: answered questions (no generation error, not a refusal), judged or not.
+    metrics["answers_with_citations_rate"] = interval(
+        [1.0 if has_citation(r) else 0.0 for r in answered],
+        [r.get("group", r.get("item_id")) for r in answered],
+    )
+    # Denominator: only the answers that cite something, so it must be read with the rate above.
+    with_cites = [r for r in answered if has_citation(r)]
     metrics["citations_in_context_rate"] = interval(
         [1.0 if r["citations_in_context"] else 0.0 for r in with_cites],
         [r.get("group", r.get("item_id")) for r in with_cites],

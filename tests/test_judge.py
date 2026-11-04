@@ -315,6 +315,34 @@ class TestSummarizeGeneration(unittest.TestCase):
         self.assertEqual(summary["metrics"]["faithfulness"]["n"], 8)
         self.assertAlmostEqual(summary["metrics"]["refusal_rate"]["estimate"], 0.2)
 
+    def test_share_of_answered_questions_with_citations_is_reported(self):
+        with_cites = [item(i, cited_chunk_ids=["c0"]) for i in range(6)]
+        without = [item(6 + i, cited_chunk_ids=[], citations_in_context=None) for i in range(4)]
+        refused = [item(10, refused=True, judge_status="skipped_refusal", scores=None, cited_chunk_ids=[], citations_in_context=None)]
+        failed = [item(11, generation_ok=False, scores=None, judge_status="skipped_generation_error", cited_chunk_ids=[], citations_in_context=None)]
+        metrics = summarize_generation(with_cites + without + refused + failed, n_resamples=200)["metrics"]
+        rate = metrics["answers_with_citations_rate"]
+        self.assertEqual((rate["n"], rate["estimate"]), (10, 0.6))  # refusals and system errors are not "answered"
+        self.assertIsNotNone(rate["low"])
+        # The older rate keeps its own denominator: only answers that cite something.
+        self.assertEqual(metrics["citations_in_context_rate"]["n"], 6)
+
+    def test_citation_share_counts_an_answer_that_cites_only_chunks_outside_the_context(self):
+        records = [item(0, cited_chunk_ids=["invented"], citations_in_context=False), item(1, cited_chunk_ids=[], citations_in_context=None)]
+        metrics = summarize_generation(records, n_resamples=100)["metrics"]
+        self.assertEqual(metrics["answers_with_citations_rate"]["estimate"], 0.5)
+        self.assertEqual(metrics["citations_in_context_rate"]["estimate"], 0.0)
+
+    def test_citation_share_works_for_records_saved_before_the_field_existed(self):
+        legacy = [item(0), item(1, citations_in_context=None)]  # no cited_chunk_ids key
+        self.assertEqual(summarize_generation(legacy, n_resamples=100)["metrics"]["answers_with_citations_rate"]["estimate"], 0.5)
+
+    def test_citation_share_is_null_when_nothing_was_answered(self):
+        records = [item(0, refused=True, judge_status="skipped_refusal", scores=None, cited_chunk_ids=[], citations_in_context=None)]
+        rate = summarize_generation(records, n_resamples=100)["metrics"]["answers_with_citations_rate"]
+        self.assertEqual(rate["n"], 0)
+        self.assertIsNone(rate["estimate"])
+
     def test_failure_labels_have_counts_and_intervals(self):
         records = [item(i) for i in range(6)] + [item(6 + i, failure_label="Retrieval Failure") for i in range(4)]
         table = summarize_generation(records, n_resamples=100)["failure_labels"]
