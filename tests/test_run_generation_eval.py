@@ -337,3 +337,83 @@ class TestAgreement(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSettingsAreRespected(unittest.TestCase):
+    """The model and key come from get_settings(), so .env applies (review fix 4)."""
+
+    def setUp(self):
+        from legalrag.api.config import get_settings
+
+        self.get_settings = get_settings
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cwd = os.getcwd()
+        self.addCleanup(os.chdir, self.cwd)
+        os.chdir(self.tmp.name)  # Settings reads ".env" from the working directory
+        patched = mock.patch.dict(os.environ, {}, clear=False)
+        patched.start()
+        self.addCleanup(patched.stop)
+        for name in ("GROQ_MODEL_NAME", "GROQ_API_KEY", "GROQ_REQUEST_TIMEOUT", "GROQ_MAX_RETRIES"):
+            os.environ.pop(name, None)
+
+    def args(self, *extra):
+        return script.parse_args(["--benchmark", "b.json", "--retrieval-results", "r.jsonl",
+                                  "--judge-model", "judge-m", *extra])
+
+    def write_env(self, text):
+        Path(".env").write_text(text, encoding="utf-8")
+        self.get_settings.cache_clear()
+
+    def test_generator_model_comes_from_dot_env_when_the_flag_is_absent(self):
+        self.write_env("GROQ_MODEL_NAME=env-file-model\n")
+        self.assertEqual(script.resolve_generator_model(self.args()), "env-file-model")
+
+    def test_environment_variable_beats_dot_env(self):
+        self.write_env("GROQ_MODEL_NAME=env-file-model\n")
+        os.environ["GROQ_MODEL_NAME"] = "process-model"
+        self.assertEqual(script.resolve_generator_model(self.args()), "process-model")
+
+    def test_the_flag_beats_settings(self):
+        self.write_env("GROQ_MODEL_NAME=env-file-model\n")
+        self.assertEqual(script.resolve_generator_model(self.args("--generator-model", "flag-model")), "flag-model")
+
+    def test_default_matches_the_api_default_when_nothing_is_configured(self):
+        from legalrag.api.config import Settings
+
+        self.assertEqual(script.resolve_generator_model(self.args()), Settings(_env_file=None).groq_model_name)
+
+    def test_clients_get_key_timeout_and_retries_from_dot_env(self):
+        self.write_env("GROQ_API_KEY=key-from-dot-env\nGROQ_REQUEST_TIMEOUT=12\nGROQ_MAX_RETRIES=4\nGROQ_MODEL_NAME=env-file-model\n")
+        args = self.args()
+        args.generator_model = script.resolve_generator_model(args)
+        created = []
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                created.append(kwargs)
+                self.model_name = kwargs["model_name"]
+
+        with mock.patch("legalrag.generation.client.LegalGenerationClient", FakeClient):
+            generator, judge = script.build_clients(args)
+        self.assertEqual([c["model_name"] for c in created], ["env-file-model", "judge-m"])
+        for kwargs in created:
+            self.assertEqual((kwargs["api_key"], kwargs["request_timeout"], kwargs["max_retries"]), ("key-from-dot-env", 12.0, 4))
+        self.assertEqual(judge.generator_model, "env-file-model")
+
+    def test_missing_key_gives_a_clear_message_not_a_traceback(self):
+        args = self.args("--generator-model", "gen-m")
+        with self.assertRaises(SystemExit) as ctx:
+            script.build_clients(args)
+        self.assertIn("Groq API key is required", str(ctx.exception))
+
+    def test_main_uses_the_dot_env_model_in_the_saved_records_and_independence_check(self):
+        self.write_env("GROQ_MODEL_NAME=judge-m\n")  # same as the judge: must be refused
+        questions = [{"question_id": "1", "question": "Q?", "source_cnr": "G"}]
+        Path("b.json").write_text(json.dumps(questions), encoding="utf-8")
+        JsonlCheckpoint(Path("r.jsonl")).append(retrieval_record("1"))
+        with self.assertRaises(JudgeIndependenceError):
+            script.main(["--benchmark", "b.json", "--retrieval-results", "r.jsonl", "--out-dir", "out",
+                         "--judge-model", "judge-m", "--yes"])

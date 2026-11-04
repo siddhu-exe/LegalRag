@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import sys
 import time
@@ -70,7 +69,6 @@ from legalrag.generation.client import GenerationError  # noqa: E402
 from legalrag.generation.prompts import SYSTEM_PROMPT, build_rag_prompt, extract_citations  # noqa: E402
 
 DEFAULT_OUT_DIR = Path("results/eval_v2")
-DEFAULT_GENERATOR_MODEL = "qwen/qwen3.8-27b"  # same default as the API settings
 SCORE_FIELDS = ("answer_relevance", "faithfulness", "citation_correctness")
 SCORE_SCALE = (1, 2, 3, 4)
 HUMAN_FIELDS = SCORE_FIELDS + ("hallucination",)
@@ -309,7 +307,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--system", default="hybrid_rerank", choices=("bm25", "dense", "hybrid_rrf", "hybrid_rerank"))
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--judge-model", required=True, help="must differ from the generator model")
-    parser.add_argument("--generator-model", default=os.getenv("GROQ_MODEL_NAME", DEFAULT_GENERATOR_MODEL))
+    parser.add_argument(
+        "--generator-model",
+        default=None,
+        help="default: the API's groq_model_name from get_settings(), so GROQ_MODEL_NAME in the "
+        "environment or in .env applies exactly as it does for the deployed service",
+    )
     parser.add_argument("--question-model", default=None, help="model that wrote the questions (recorded; warns on overlap)")
     parser.add_argument("--sample", type=int, default=None, help="random subset of N questions (seeded)")
     parser.add_argument("--seed", type=int, default=0)
@@ -335,16 +338,37 @@ def load_retrievals(path: Path) -> Dict[str, Dict[str, Any]]:
     return {k: v for k, v in checkpoint.records.items() if v.get("status") == "ok"}
 
 
+def resolve_generator_model(args: argparse.Namespace) -> str:
+    """The generator is the deployed model: --generator-model, else the API settings (env and .env)."""
+    if args.generator_model:
+        return args.generator_model
+    from legalrag.api.config import get_settings
+
+    return get_settings().groq_model_name
+
+
 def build_clients(args: argparse.Namespace) -> tuple:
+    """Both clients take the key, timeout and retries from get_settings(), so .env is respected."""
+    from legalrag.api.config import get_settings
     from legalrag.generation.client import LegalGenerationClient
 
-    generator = LegalGenerationClient(model_name=args.generator_model)
-    judge_client = LegalGenerationClient(model_name=args.judge_model, max_retries=2)
+    settings = get_settings()
+    common = {
+        "api_key": settings.groq_api_key,
+        "request_timeout": settings.groq_request_timeout,
+        "max_retries": settings.groq_max_retries,
+    }
+    try:
+        generator = LegalGenerationClient(model_name=args.generator_model, **common)
+        judge_client = LegalGenerationClient(model_name=args.judge_model, **common)
+    except (ValueError, ImportError) as exc:  # missing key or groq package: say so plainly
+        raise SystemExit(f"Cannot create the Groq clients: {exc}") from exc
     return generator, LLMJudge(judge_client, args.generator_model, args.question_model)
 
 
 def main(argv: Optional[Sequence[str]] = None, clients: Optional[tuple] = None) -> None:
     args = parse_args(argv)
+    args.generator_model = resolve_generator_model(args)
     warnings = check_independence(args.judge_model, args.generator_model, args.question_model)  # stops on same model
     items = sample_benchmark(load_benchmark(args.benchmark), args.sample, args.seed)
     retrievals = load_retrievals(args.retrieval_results)
