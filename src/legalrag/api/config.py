@@ -156,6 +156,20 @@ class Settings(BaseSettings):
     )
     onnx_threads: Optional[int] = Field(default=None, ge=1, description="onnxruntime intra-op threads (default: library choice).")
 
+    # Old-law/new-law section expansion for the BM25 query (plan task C6). Off by default.
+    statute_expansion: bool = Field(
+        default=False,
+        description="Append the BNS/BNSS/BSA (or IPC/CrPC/Evidence Act) number to BM25 queries that name a section.",
+    )
+    statute_map_allow_unreviewed: bool = Field(
+        default=False, description="Testing only: accept a statute map nobody has marked as reviewed."
+    )
+
+    @property
+    def statute_map_path(self) -> Path:
+        """Mapping built by scripts/build_statute_map.py from the official table."""
+        return self.artifact_dir / "statute_map.json"
+
     @property
     def bm25s_dir(self) -> Path:
         """Directory holding the bm25s index written by scripts/build_retrieval_indexes_v2.py."""

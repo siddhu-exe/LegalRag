@@ -104,7 +104,9 @@ def retrieve_all_systems(pipeline: Any, lookup: ChunkLookup, question: str, dept
     """Runs the cascade once and returns the ranked chunk ids of all four systems."""
     timings: Dict[str, float] = {}
     t0 = time.perf_counter()
-    bm25_ids = [cid for cid, _ in pipeline.bm25.search(question, top_k=depth)]
+    # With statute expansion on, BM25 searches the question plus the other law's section numbers, as the API does.
+    bm25_query = pipeline.retrieval_query(question) if hasattr(pipeline, "retrieval_query") else question
+    bm25_ids = [cid for cid, _ in pipeline.bm25.search(bm25_query, top_k=depth)]
     timings["bm25_ms"] = (time.perf_counter() - t0) * 1000.0
     t0 = time.perf_counter()
     dense_ids = [cid for cid, _ in pipeline.dense.search(question, top_k=depth)]

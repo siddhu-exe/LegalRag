@@ -114,7 +114,7 @@ def query_endpoint(
     # -------------------------------------------------------------------------
     t_ret_start = time.perf_counter()
     try:
-        bm25_scored = pipeline.bm25.search(request.question, top_k=50)
+        bm25_scored = pipeline.bm25.search(pipeline.retrieval_query(request.question), top_k=50)
         dense_scored = pipeline.dense.search(request.question, top_k=50)
 
         bm25_ids = [cid for cid, _ in bm25_scored]

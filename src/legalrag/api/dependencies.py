@@ -234,6 +234,15 @@ class PipelineComponents:
     #: Optional on-disk chunk store (``SqliteChunkStore``). When set, chunk rows are fetched from it
     #: by id and ``chunks`` is an empty frame; when None (the v1 default) ``chunks`` is used.
     chunk_store: Optional[Any] = None
+    #: Optional ``StatuteMap``. When set, BM25 (only) searches the question plus the other law's section
+    #: numbers for any section it names; the dense query and the question sent to the LLM are unchanged.
+    statute_mapper: Optional[Any] = None
+
+    def retrieval_query(self, question: str) -> str:
+        """The text BM25 should search for ``question`` (the question itself unless statute expansion is on)."""
+        if self.statute_mapper is None:
+            return question
+        return self.statute_mapper.expand(question).retrieval_query
 
     def get_chunks(self, chunk_ids: Any) -> Dict[str, Dict[str, Any]]:
         """Rows for the given chunk ids (text, cnr, court_code, ...), from whichever store is configured."""
@@ -359,6 +368,10 @@ def _missing_artifacts(settings: Settings) -> List[str]:
             missing.append(f"Chunk id array missing at: {settings.chunk_store_path.with_name('chunk_ids.npy')}")
     elif not settings.chunks_path.is_file():
         missing.append(f"Chunks parquet artifact missing at: {settings.chunks_path}")
+    if settings.statute_expansion and not settings.statute_map_path.is_file():
+        missing.append(
+            f"Statute map missing at: {settings.statute_map_path} (build it with scripts/build_statute_map.py)"
+        )
     if settings.embedder_backend == "onnx" and not settings.onnx_embedder_dir.is_dir():
         missing.append(f"ONNX embedder directory missing at: {settings.onnx_embedder_dir}")
     if settings.reranker_backend == "onnx" and not settings.onnx_reranker_dir.is_dir():
@@ -457,6 +470,15 @@ def load_retrieval_components(settings: Settings) -> PipelineComponents:
             model_name=settings.reranker_model_name,
         )
 
+    statute_mapper = None
+    if settings.statute_expansion:
+        from legalrag.retrieval.statute_map import StatuteMap
+
+        logger.info("Loading statute map from %s", settings.statute_map_path)
+        statute_mapper = StatuteMap.load(
+            settings.statute_map_path, require_reviewed=not settings.statute_map_allow_unreviewed
+        )
+
     return PipelineComponents(
         bm25=bm25,
         dense=dense,
@@ -465,6 +487,7 @@ def load_retrieval_components(settings: Settings) -> PipelineComponents:
         generator=None,
         environment="production",
         chunk_store=chunk_store,
+        statute_mapper=statute_mapper,
     )
 
 
