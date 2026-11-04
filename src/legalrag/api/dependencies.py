@@ -272,13 +272,15 @@ def _validate_chunk_id_resolution(pipeline: PipelineComponents) -> None:
             )
 
 
-def validate_pipeline_components(pipeline: PipelineComponents) -> None:
+def validate_pipeline_components(pipeline: PipelineComponents, require_generator: bool = True) -> None:
     """
     Verifies that every retrieval component in a pipeline is actually usable.
 
     Structural checks run against real retrievers only; stub components are intentionally
-    lightweight. For production pipelines, generation must be configured and every chunk
-    ID returned by the retrievers must resolve against legal_chunks.parquet.
+    lightweight. For production pipelines, generation must be configured (unless
+    ``require_generator`` is False, as for retrieval-only evaluation, which needs no Groq key)
+    and every chunk ID returned by the retrievers must resolve against legal_chunks.parquet.
+    The API always uses the default, so serving still fails closed without a generator.
 
     Raises:
         ValueError: when a retrieval component cannot serve queries.
@@ -291,7 +293,7 @@ def validate_pipeline_components(pipeline: PipelineComponents) -> None:
         pipeline.reranker.validate()
 
     if pipeline.environment == "production":
-        if pipeline.generator is None:
+        if require_generator and pipeline.generator is None:
             raise ValueError("Production pipeline has no generation client configured.")
         _validate_chunk_id_resolution(pipeline)
 

@@ -163,7 +163,7 @@ def load_pipeline(mode: str) -> Tuple[Any, ChunkLookup]:
         )
         reranker = CrossEncoderReranker(model_name=settings.reranker_model_name)
         pipeline = PipelineComponents(bm25, dense, reranker, chunks, generator=None, environment="production")
-        validate_pipeline_components(pipeline)
+        validate_pipeline_components(pipeline, require_generator=False)  # retrieval needs no Groq key
     return pipeline, ChunkLookup(pipeline.chunks)
 
 
