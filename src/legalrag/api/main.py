@@ -20,6 +20,7 @@ import uvicorn
 from legalrag.api.config import get_settings
 from legalrag.api.dependencies import PipelineInitializationError, get_pipeline
 from legalrag.api.provisioning import ArtifactProvisioningError, provision_production_artifacts
+from legalrag.api.lookup import router as lookup_router
 from legalrag.api.routes import router as api_router
 from legalrag.generation.client import GenerationError
 
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
 
     # Mount API routes
     app.include_router(api_router)
+    app.include_router(lookup_router)
 
     @app.get("/", tags=["Root"])
     def root():
@@ -118,6 +120,7 @@ def create_app() -> FastAPI:
             "health_url": "/health",
             "readiness_url": "/ready",
             "query_url": "/query",
+            "lookup_url": "/lookup",
         }
 
     return app

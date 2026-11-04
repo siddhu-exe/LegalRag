@@ -165,6 +165,14 @@ class Settings(BaseSettings):
         default=False, description="Testing only: accept a statute map nobody has marked as reviewed."
     )
 
+    # Case lookup across all records (plan task C7). Off by default.
+    lookup_enabled: bool = Field(default=False, description="Serve GET /lookup from lookup.sqlite.")
+
+    @property
+    def lookup_db_path(self) -> Path:
+        """Built by scripts/build_lookup_index.py."""
+        return self.artifact_dir / "lookup.sqlite"
+
     @property
     def statute_map_path(self) -> Path:
         """Mapping built by scripts/build_statute_map.py from the official table."""
