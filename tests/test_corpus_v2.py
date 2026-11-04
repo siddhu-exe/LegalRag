@@ -90,6 +90,36 @@ class TestCaseType(unittest.TestCase):
         self.assertEqual(parse_case_reference("Ram v. WP/5/2001")["code"], "WP")
         self.assertEqual(parse_case_reference("Ram Kumar Vs State of Maharashtra CRA/7/2011")["code"], "CRA")
 
+    def test_capitalised_party_names_are_not_absorbed_into_the_code(self):
+        # Each of these used to give a code such as RAMVSCRA or STATEOFMAHARASHTRA.
+        expected = {
+            "RAM VS CRA/5/2011": "CRA",
+            "SHRI RAM KUMAR/12/2015": "KUMAR",
+            "DR. SHARMA/12/2015": "SHARMA",
+            "SMT. PATIL/3/2001": "PATIL",
+            "MRS. DESAI/4/2003": "DESAI",
+            "A. B. SHARMA/12/2015": "SHARMA",
+            "STATE OF MAHARASHTRA/1/2001": "MAHARASHTRA",
+            "UNION BANK OF INDIA/5/1999": "INDIA",
+            "RAM V. STATE CRA/5/2011": "CRA",
+        }
+        for title, code in expected.items():
+            with self.subTest(title=title):
+                self.assertEqual(parse_case_reference(title)["code"], code)
+
+    def test_real_multi_word_codes_still_work_after_the_party_name_rule(self):
+        expected = {
+            "CR. MISC./57199/2022 of A Vs B": "CRMISC",
+            "CR. MISC. APPLN./12/2019": "CRMISCAPPLN",
+            "CRL. APPLN./7/2011": "CRLAPPLN",
+            "WP(L)/12/2010": "WP(L)",
+            "WP/1519/2000": "WP",
+            "APP/694/1994": "APP",
+        }
+        for title, code in expected.items():
+            with self.subTest(title=title):
+                self.assertEqual(parse_case_reference(title)["code"], code)
+
     def test_more_than_three_leading_tokens_is_not_one_code(self):
         self.assertEqual(parse_case_reference("A B C D/9/2001")["code"], "D")
 
@@ -372,6 +402,33 @@ class TestBuilderRules(unittest.TestCase):
         result = b.process(record(cnr="HCBM01_5_3021-03-24", decision_date="2015-06-01"), HC)
         self.assertEqual(result.row["judgment_date"], "2015-06-01")
         self.assertEqual(b.stats.cnr_date_status["implausible"], 1)
+
+    def year_row(self, year, **overrides):
+        # No usable date anywhere, so the dataset's own year is the only candidate.
+        return builder().process(record(cnr="NOCNRDATE", decision_date="", year=year, **overrides), HC).row
+
+    def test_dataset_year_is_used_only_when_there_is_no_date_and_the_year_is_plausible(self):
+        self.assertEqual(self.year_row(2015)["judgment_year"], 2015)
+        self.assertEqual(self.year_row("2015")["judgment_year"], 2015)
+        self.assertEqual(self.year_row(1862)["judgment_year"], 1862)
+        self.assertEqual(self.year_row(TODAY.year)["judgment_year"], TODAY.year)
+        self.assertIsNone(self.year_row(3021)["judgment_year"])  # the source has CNR dates in 3021
+        self.assertIsNone(self.year_row(TODAY.year + 1)["judgment_year"])
+        self.assertIsNone(self.year_row(1700)["judgment_year"])
+        self.assertIsNone(self.year_row(0)["judgment_year"])
+        self.assertIsNone(self.year_row(-5)["judgment_year"])
+        for bad in (None, "", "abc", True, "20x5"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(self.year_row(bad)["judgment_year"])
+
+    def test_an_implausible_year_never_reaches_the_row_even_when_the_date_is_missing(self):
+        row = self.year_row(3021)
+        self.assertIsNone(row["judgment_date"])
+        self.assertIsNone(row["judgment_year"])
+
+    def test_a_valid_date_still_decides_the_year(self):
+        row = builder().process(record(cnr="C1", decision_date="2015-06-01", year=3021), HC).row
+        self.assertEqual(row["judgment_year"], 2015)
 
     def test_bench_names_and_unknown_bench(self):
         b = builder()

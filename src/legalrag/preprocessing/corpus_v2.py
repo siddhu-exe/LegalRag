@@ -83,12 +83,22 @@ BOMBAY_CASE_TYPE_NAMES: Dict[str, str] = {
 
 _NUMBER_AND_YEAR = r"\s*/\s*(?P<number>\d{1,7})\s*/\s*(?P<year>(?:18|19|20)\d{2})(?!\d)"
 
-# A title that STARTS with the reference: a code of up to three space-separated tokens, such as
-# "CR. MISC./57199/2022". Tokens must be capital letters and dots (no lowercase), so a title like
-# "Order in WP/5/2001" or "Ram v. WP/5/2001" is not read as the code "ORDERINWP".
+# A title that STARTS with the reference: a code of up to three tokens, such as "CR. MISC./57199/2022".
+# To keep party names out of the code, every token before the last must be a dotted abbreviation of at
+# least two capital letters ("CR.", "MISC."), so "RAM VS CRA/5/2011", "STATE OF X/1/2001" and
+# "A. B. SHARMA/12/2015" do not qualify; honorifics and party words are refused as well (below).
 _LEADING_CASE_REFERENCE = re.compile(
-    r"^\s*(?P<code>[A-Z][A-Z.&\-]*(?:\s+[A-Z][A-Z.&\-]*){0,2}(?:\s*\([A-Za-z]{1,6}\))?)"
+    r"^\s*(?P<code>(?:[A-Z]{2,}\.\s*){0,2}[A-Z][A-Z.&\-]*(?:\s*\([A-Za-z]{1,6}\))?)"
     + _NUMBER_AND_YEAR
+)
+
+# Words that mark a party name or an honorific, never a case type. A leading code containing one is
+# ignored and the title is read as before (the single token before the first slash).
+_NOT_CASE_TYPE_WORDS = frozenset(
+    {
+        "DR", "MR", "MRS", "MS", "SMT", "SHRI", "SRI", "SHRIMATI", "KUM", "KUMARI", "PROF", "ADV",
+        "CAPT", "COL", "MAJ", "LT", "HON", "VS", "V", "VERSUS", "OF", "AND", "THE", "M",
+    }
 )
 
 # Otherwise the reference may appear anywhere in the title; the code is then one token.
@@ -98,17 +108,26 @@ _CASE_REFERENCE = re.compile(
 )
 
 
+def _leading_reference(title: str) -> Optional["re.Match[str]"]:
+    match = _LEADING_CASE_REFERENCE.match(title)
+    if match is None:
+        return None
+    words = re.findall(r"[A-Z]+", re.sub(r"\(.*\)$", "", match.group("code")))
+    return None if any(word in _NOT_CASE_TYPE_WORDS for word in words) else match
+
+
 def parse_case_reference(title: Optional[str]) -> Optional[Dict[str, str]]:
     """Reads a reference such as ``WP/1519/2000`` from a title.
 
-    A reference at the start of the title keeps a multi-word code whole ("CR. MISC./57199/2022"
-    gives ``CRMISC``). A reference elsewhere in the title uses the single token before the first
-    slash. Returns ``code`` (uppercase letters and parentheses only, for example ``WP(L)``),
+    A reference at the start of the title keeps a multi-word code whole when every word before the
+    last is a dotted abbreviation ("CR. MISC./57199/2022" gives ``CRMISC``) and none is an honorific
+    or party word. Anything else uses the single token before the first slash, wherever it is in the
+    title. Returns ``code`` (uppercase letters and parentheses only, for example ``WP(L)``),
     ``number`` and ``year``, or None when the title holds no such reference.
     """
     if not title or not isinstance(title, str):
         return None
-    match = _LEADING_CASE_REFERENCE.match(title) or _CASE_REFERENCE.search(title)
+    match = _leading_reference(title) or _CASE_REFERENCE.search(title)
     if match is None:
         return None
     code = re.sub(r"[^A-Z()]", "", match.group("code").upper())
@@ -543,6 +562,15 @@ def _blank_to_none(value: Any) -> Optional[str]:
     return text or None
 
 
+def _plausible_year(value: Any, today: Optional[dt.date]) -> Optional[int]:
+    """The year if it is an integer between 1862 and the current year, otherwise None."""
+    year = _as_int(value)
+    if year is None or isinstance(value, bool):
+        return None
+    latest = (today or dt.date.today()).year
+    return year if MIN_PLAUSIBLE_YEAR <= year <= latest else None
+
+
 def _as_int(value: Any) -> Optional[int]:
     try:
         return int(value)
@@ -680,7 +708,13 @@ class CorpusBuilder:
         if code and name is None and not source.is_supreme_court:
             stats.unmapped_case_codes[re.sub(r"\(.*\)$", "", code)] += 1
 
-        judgment_year = int(date.judgment_date[:4]) if date.judgment_date else _as_int(record.get("year"))
+        # The dataset's own `year` is only a fallback, and only if it is plausible (the source has
+        # years such as 3021): same bounds as the date rule.
+        judgment_year = (
+            int(date.judgment_date[:4])
+            if date.judgment_date
+            else _plausible_year(record.get("year"), self.config.today)
+        )
 
         return {
             "cnr": cnr,
